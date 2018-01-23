@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"github.com/masters-of-cats/concourse-flake-hunter/commands"
-	"github.com/masters-of-cats/concourse-flake-hunter/fly"
+	"github.com/albertoleal/concourse-flake-hunter/commands"
+	"github.com/albertoleal/concourse-flake-hunter/fly"
 	"github.com/urfave/cli"
 )
 
@@ -23,9 +23,8 @@ func main() {
 			Usage: "Username for basic auth",
 		},
 		cli.StringFlag{
-			Name:   "password, p",
-			Usage:  "Password for basic auth",
-			EnvVar: "CONCOURSE_BASIC_AUTH_PW",
+			Name:  "password, p",
+			Usage: "Password for basic auth",
 		},
 		cli.StringFlag{
 			Name:  "team-name, n",

@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/masters-of-cats/concourse-flake-hunter/fly"
-	"github.com/masters-of-cats/concourse-flake-hunter/hunter"
+	"github.com/albertoleal/concourse-flake-hunter/fly"
+	"github.com/albertoleal/concourse-flake-hunter/hunter"
 	"github.com/urfave/cli"
 )
 
@@ -18,9 +18,19 @@ type Failure struct {
 }
 
 type FailuresInfo struct {
-	Count         int
 	LastOccurance int64
 	Failures      []Failure
+}
+
+func (failuresInfo *FailuresInfo) getScore() int {
+	hourlyOccurances := make(map[int64]struct{})
+
+	now := time.Now().Unix()
+	for _, failure := range failuresInfo.Failures {
+		hoursSince := (now - failure.Date) / (60 * 60)
+		hourlyOccurances[hoursSince] = struct{}{}
+	}
+	return len(hourlyOccurances)
 }
 
 var AggregateCommand = cli.Command{
@@ -33,11 +43,6 @@ var AggregateCommand = cli.Command{
 			Name:  "max-age, m",
 			Usage: "Lists builds that failed in the last n hours",
 			Value: -1,
-		},
-		cli.IntFlag{
-			Name:  "threshold, t",
-			Usage: "Defines a test as a flake it if fails at least n times",
-			Value: 3,
 		},
 	},
 
@@ -67,7 +72,7 @@ var AggregateCommand = cli.Command{
 			}
 		}
 
-		aggregator.printEntries(ctx.Int("threshold"))
+		aggregator.printEntries()
 		return nil
 	},
 }
@@ -82,27 +87,25 @@ func NewAggregator() *Aggregator {
 
 func (a *Aggregator) addFailure(failure *Failure) {
 	if info, ok := a.failuresInfo[failure.Description]; ok {
-		info.Count++
 		info.Failures = append(info.Failures, *failure)
 		if info.LastOccurance < failure.Date {
 			info.LastOccurance = failure.Date
 		}
 	} else {
 		a.failuresInfo[failure.Description] = &FailuresInfo{
-			Count:         1,
 			LastOccurance: failure.Date,
 			Failures:      []Failure{*failure},
 		}
 	}
 }
 
-func (a *Aggregator) printEntries(threshold int) {
+func (a *Aggregator) printEntries() {
 	for description, info := range a.failuresInfo {
-		if info.Count < threshold {
+		if info.getScore() < 2 {
 			continue
 		}
 		fmt.Println(description)
-		fmt.Printf("\tCount: %d\n", info.Count)
+		fmt.Printf("\tScore: %d\n", info.getScore())
 		fmt.Printf("\tLastOccurance: %s\n", time.Unix(info.LastOccurance, 0).String())
 		for _, failure := range info.Failures {
 			fmt.Printf("\t\tJobName: %s\n", failure.JobName)
