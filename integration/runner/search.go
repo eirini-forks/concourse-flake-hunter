@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/albertoleal/concourse-flake-hunter/hunter"
+	"github.com/masters-of-cats/concourse-flake-hunter/hunter"
 )
 
 func (r Runner) Search(spec hunter.SearchSpec) (string, error) {

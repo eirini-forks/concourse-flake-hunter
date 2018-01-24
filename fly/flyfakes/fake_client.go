@@ -4,7 +4,7 @@ package flyfakes
 import (
 	"sync"
 
-	"github.com/albertoleal/concourse-flake-hunter/fly"
+	"github.com/masters-of-cats/concourse-flake-hunter/fly"
 	"github.com/concourse/atc"
 	"github.com/concourse/go-concourse/concourse"
 )
