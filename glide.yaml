@@ -9,9 +9,3 @@ import:
 - package: github.com/olekukonko/tablewriter
 - package: github.com/urfave/cli
 - package: golang.org/x/oauth2
-testImport:
-- package: github.com/onsi/ginkgo
-- package: github.com/onsi/gomega
-  subpackages:
-  - gexec
-  - ghttp
