@@ -32,6 +32,8 @@ type Worker interface {
 	State() WorkerState
 	GardenAddr() *string
 	BaggageclaimURL() *string
+	CertsPath() *string
+	ResourceCerts() (*UsedWorkerResourceCerts, bool, error)
 	HTTPProxyURL() string
 	HTTPSProxyURL() string
 	NoProxy() string
@@ -55,11 +57,12 @@ type Worker interface {
 type worker struct {
 	conn Conn
 
-	name             string
-	version          *string
-	state            WorkerState
-	gardenAddr       *string
-	baggageclaimURL  *string
+	name            string
+	version         *string
+	state           WorkerState
+	gardenAddr      *string
+	baggageclaimURL *string
+	//	reaperAddr       *string
 	httpProxyURL     string
 	httpsProxyURL    string
 	noProxy          string
@@ -71,13 +74,16 @@ type worker struct {
 	teamName         string
 	startTime        int64
 	expiresAt        time.Time
+	certsPath        *string
 }
 
-func (worker *worker) Name() string                            { return worker.name }
-func (worker *worker) Version() *string                        { return worker.version }
-func (worker *worker) State() WorkerState                      { return worker.state }
-func (worker *worker) GardenAddr() *string                     { return worker.gardenAddr }
-func (worker *worker) BaggageclaimURL() *string                { return worker.baggageclaimURL }
+func (worker *worker) Name() string             { return worker.name }
+func (worker *worker) Version() *string         { return worker.version }
+func (worker *worker) State() WorkerState       { return worker.state }
+func (worker *worker) GardenAddr() *string      { return worker.gardenAddr }
+func (worker *worker) CertsPath() *string       { return worker.certsPath }
+func (worker *worker) BaggageclaimURL() *string { return worker.baggageclaimURL }
+
 func (worker *worker) HTTPProxyURL() string                    { return worker.httpProxyURL }
 func (worker *worker) HTTPSProxyURL() string                   { return worker.httpsProxyURL }
 func (worker *worker) NoProxy() string                         { return worker.noProxy }
@@ -214,4 +220,17 @@ func (worker *worker) Delete() error {
 		Exec()
 
 	return err
+}
+
+func (worker *worker) ResourceCerts() (*UsedWorkerResourceCerts, bool, error) {
+	if worker.certsPath != nil {
+		wrc := &WorkerResourceCerts{
+			WorkerName: worker.name,
+			CertsPath:  *worker.certsPath,
+		}
+
+		return wrc.Find(worker.conn)
+	}
+
+	return nil, false, nil
 }

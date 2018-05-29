@@ -1,7 +1,7 @@
 package resource
 
 import (
-	"os"
+	"context"
 
 	"code.cloudfoundry.org/lager"
 	"github.com/concourse/atc/creds"
@@ -9,19 +9,7 @@ import (
 	"github.com/concourse/atc/worker"
 )
 
-//go:generate counterfeiter . ResourceFactoryFactory
-
-type ResourceFactoryFactory interface {
-	FactoryFor(workerClient worker.Client) ResourceFactory
-}
-
-type resourceFactoryFactory struct{}
-
-func NewResourceFactoryFactory() ResourceFactoryFactory {
-	return &resourceFactoryFactory{}
-}
-
-func (f *resourceFactoryFactory) FactoryFor(workerClient worker.Client) ResourceFactory {
+func NewResourceFactory(workerClient worker.Client) ResourceFactory {
 	return &resourceFactory{
 		workerClient: workerClient,
 	}
@@ -31,8 +19,8 @@ func (f *resourceFactoryFactory) FactoryFor(workerClient worker.Client) Resource
 
 type ResourceFactory interface {
 	NewResource(
+		ctx context.Context,
 		logger lager.Logger,
-		signals <-chan os.Signal,
 		owner db.ContainerOwner,
 		metadata db.ContainerMetadata,
 		containerSpec worker.ContainerSpec,
@@ -46,17 +34,22 @@ type resourceFactory struct {
 }
 
 func (f *resourceFactory) NewResource(
+	ctx context.Context,
 	logger lager.Logger,
-	signals <-chan os.Signal,
 	owner db.ContainerOwner,
 	metadata db.ContainerMetadata,
 	containerSpec worker.ContainerSpec,
 	resourceTypes creds.VersionedResourceTypes,
 	imageFetchingDelegate worker.ImageFetchingDelegate,
 ) (Resource, error) {
+
+	containerSpec.BindMounts = []worker.BindMountSource{
+		&worker.CertsVolumeMount{Logger: logger},
+	}
+
 	container, err := f.workerClient.FindOrCreateContainer(
+		ctx,
 		logger,
-		signals,
 		imageFetchingDelegate,
 		owner,
 		metadata,

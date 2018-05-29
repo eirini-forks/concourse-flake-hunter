@@ -1,12 +1,16 @@
 package db
 
-import sq "github.com/Masterminds/squirrel"
+import (
+	sq "github.com/Masterminds/squirrel"
+)
 
 //go:generate counterfeiter . ContainerRepository
 
 type ContainerRepository interface {
 	FindOrphanedContainers() ([]CreatingContainer, []CreatedContainer, []DestroyingContainer, error)
 	FindFailedContainers() ([]FailedContainer, error)
+	FindDestroyingContainers(workerName string) ([]string, error)
+	RemoveDestroyingContainers(workerName string, currentHandles []string) (int, error)
 }
 
 type containerRepository struct {
@@ -17,6 +21,71 @@ func NewContainerRepository(conn Conn) ContainerRepository {
 	return &containerRepository{
 		conn: conn,
 	}
+}
+
+func (repository *containerRepository) FindDestroyingContainers(workerName string) ([]string, error) {
+	handles := []string{}
+
+	query, args, err := psql.Select("handle").From("containers").
+		Where(
+			sq.And{
+				sq.Eq{
+					"state":       ContainerStateDestroying,
+					"worker_name": workerName,
+				},
+				sq.NotEq{
+					"discontinued": true,
+				},
+			},
+		).ToSql()
+
+	rows, err := repository.conn.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer Close(rows)
+
+	for rows.Next() {
+		var handle = "handle"
+		columns := []interface{}{&handle}
+
+		err = rows.Scan(columns...)
+		if err != nil {
+			return nil, err
+		}
+		handles = append(handles, handle)
+	}
+
+	return handles, nil
+}
+
+func (repository *containerRepository) RemoveDestroyingContainers(workerName string, handles []string) (int, error) {
+	rows, err := psql.Delete("containers").
+		Where(
+			sq.And{
+				sq.Eq{
+					"worker_name": workerName,
+				},
+				sq.NotEq{
+					"handle": handles,
+				},
+				sq.Eq{
+					"state": ContainerStateDestroying,
+				},
+			},
+		).RunWith(repository.conn).
+		Exec()
+
+	if err != nil {
+		return 0, err
+	}
+
+	affected, err := rows.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+
+	return int(affected), nil
 }
 
 func (repository *containerRepository) FindOrphanedContainers() ([]CreatingContainer, []CreatedContainer, []DestroyingContainer, error) {

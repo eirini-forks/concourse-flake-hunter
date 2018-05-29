@@ -1,8 +1,8 @@
 package worker
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"code.cloudfoundry.org/clock"
@@ -13,6 +13,7 @@ import (
 	"github.com/concourse/atc/db/lock"
 	"github.com/concourse/atc/metric"
 	"github.com/concourse/baggageclaim"
+	// "github.com/concourse/worker/reaper"
 )
 
 const creatingContainerRetryDelay = 1 * time.Second
@@ -20,12 +21,13 @@ const creatingContainerRetryDelay = 1 * time.Second
 func NewContainerProvider(
 	gardenClient garden.Client,
 	baggageclaimClient baggageclaim.Client,
+	// reaperClient reaper.ReaperClient,
 	volumeClient VolumeClient,
 	dbWorker db.Worker,
 	clock clock.Clock,
 	//TODO: less of all this junk..
 	imageFactory ImageFactory,
-	dbVolumeFactory db.VolumeFactory,
+	dbVolumeRepository db.VolumeRepository,
 	dbTeamFactory db.TeamFactory,
 	lockFactory lock.LockFactory,
 ) ContainerProvider {
@@ -33,9 +35,10 @@ func NewContainerProvider(
 	return &containerProvider{
 		gardenClient:       gardenClient,
 		baggageclaimClient: baggageclaimClient,
+		// reaperClient:       reaperClient,
 		volumeClient:       volumeClient,
 		imageFactory:       imageFactory,
-		dbVolumeFactory:    dbVolumeFactory,
+		dbVolumeRepository: dbVolumeRepository,
 		dbTeamFactory:      dbTeamFactory,
 		lockFactory:        lockFactory,
 		httpProxyURL:       dbWorker.HTTPProxyURL(),
@@ -56,8 +59,8 @@ type ContainerProvider interface {
 	) (Container, bool, error)
 
 	FindOrCreateContainer(
+		ctx context.Context,
 		logger lager.Logger,
-		cancel <-chan os.Signal,
 		owner db.ContainerOwner,
 		delegate ImageFetchingDelegate,
 		metadata db.ContainerMetadata,
@@ -69,9 +72,10 @@ type ContainerProvider interface {
 type containerProvider struct {
 	gardenClient       garden.Client
 	baggageclaimClient baggageclaim.Client
+	// reaperClient       reaper.ReaperClient
 	volumeClient       VolumeClient
 	imageFactory       ImageFactory
-	dbVolumeFactory    db.VolumeFactory
+	dbVolumeRepository db.VolumeRepository
 	dbTeamFactory      db.TeamFactory
 
 	lockFactory lock.LockFactory
@@ -85,8 +89,8 @@ type containerProvider struct {
 }
 
 func (p *containerProvider) FindOrCreateContainer(
+	ctx context.Context,
 	logger lager.Logger,
-	cancel <-chan os.Signal,
 	owner db.ContainerOwner,
 	delegate ImageFetchingDelegate,
 	metadata db.ContainerMetadata,
@@ -144,6 +148,7 @@ func (p *containerProvider) FindOrCreateContainer(
 			worker := NewGardenWorker(
 				p.gardenClient,
 				p.baggageclaimClient,
+				// p.reaperClient,
 				p,
 				p.volumeClient,
 				p.worker,
@@ -196,7 +201,7 @@ func (p *containerProvider) FindOrCreateContainer(
 
 			logger.Debug("fetching-image")
 
-			fetchedImage, err := image.FetchForContainer(logger, cancel, creatingContainer)
+			fetchedImage, err := image.FetchForContainer(ctx, logger, creatingContainer)
 			if err != nil {
 				creatingContainer.Failed()
 				logger.Error("failed-to-fetch-image-for-container", err)
@@ -225,27 +230,6 @@ func (p *containerProvider) FindOrCreateContainer(
 			metric.ContainersCreated.Inc()
 
 			logger.Debug("created-container-in-garden")
-		}
-
-		certsVolume, found, err := p.baggageclaimClient.LookupVolume(logger, certsVolumeName)
-		if err != nil {
-			return nil, err
-		}
-
-		if found {
-			reader, err := certsVolume.StreamOut("/")
-			if err != nil {
-				return nil, err
-			}
-
-			err = gardenContainer.StreamIn(garden.StreamInSpec{
-				Path:      "/etc/ssl/certs/",
-				TarStream: reader,
-			})
-
-			if err != nil {
-				return nil, err
-			}
 		}
 
 		createdContainer, err = creatingContainer.Created()
@@ -293,7 +277,7 @@ func (p *containerProvider) FindCreatedContainerByHandle(
 		return nil, false, nil
 	}
 
-	createdVolumes, err := p.dbVolumeFactory.FindVolumesForContainer(createdContainer)
+	createdVolumes, err := p.dbVolumeRepository.FindVolumesForContainer(createdContainer)
 	if err != nil {
 		return nil, false, err
 	}
@@ -321,7 +305,7 @@ func (p *containerProvider) constructGardenWorkerContainer(
 	createdContainer db.CreatedContainer,
 	gardenContainer garden.Container,
 ) (Container, error) {
-	createdVolumes, err := p.dbVolumeFactory.FindVolumesForContainer(createdContainer)
+	createdVolumes, err := p.dbVolumeRepository.FindVolumesForContainer(createdContainer)
 	if err != nil {
 		logger.Error("failed-to-find-container-volumes", err)
 		return nil, err
@@ -386,17 +370,18 @@ func (p *containerProvider) createGardenContainer(
 		})
 	}
 
+	worker := NewGardenWorker(
+		p.gardenClient,
+		p.baggageclaimClient,
+		// p.reaperClient,
+		p,
+		p.volumeClient,
+		p.worker,
+		p.clock,
+	)
+
 	for _, inputSource := range spec.Inputs {
 		var inputVolume Volume
-
-		worker := NewGardenWorker(
-			p.gardenClient,
-			p.baggageclaimClient,
-			p,
-			p.volumeClient,
-			p.worker,
-			p.clock,
-		)
 
 		localVolume, found, err := inputSource.Source().VolumeOn(worker)
 		if err != nil {
@@ -467,6 +452,16 @@ func (p *containerProvider) createGardenContainer(
 	}
 
 	bindMounts := []garden.BindMount{}
+
+	for _, mount := range spec.BindMounts {
+		bindMount, found, mountErr := mount.VolumeOn(worker)
+		if mountErr != nil {
+			return nil, mountErr
+		}
+		if found {
+			bindMounts = append(bindMounts, bindMount)
+		}
+	}
 
 	volumeHandleMounts := map[string]string{}
 	for _, mount := range volumeMounts {

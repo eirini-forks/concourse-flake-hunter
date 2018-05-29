@@ -28,7 +28,7 @@ var (
 
 	dbConn                              db.Conn
 	buildFactory                        db.BuildFactory
-	volumeFactory                       db.VolumeFactory
+	volumeRepository                    db.VolumeRepository
 	containerRepository                 db.ContainerRepository
 	teamFactory                         db.TeamFactory
 	workerFactory                       db.WorkerFactory
@@ -91,7 +91,7 @@ var _ = BeforeEach(func() {
 	lockFactory = lock.NewLockFactory(postgresRunner.OpenSingleton())
 
 	buildFactory = db.NewBuildFactory(dbConn, lockFactory)
-	volumeFactory = db.NewVolumeFactory(dbConn)
+	volumeRepository = db.NewVolumeRepository(dbConn)
 	containerRepository = db.NewContainerRepository(dbConn)
 	teamFactory = db.NewTeamFactory(dbConn, lockFactory)
 	workerFactory = db.NewWorkerFactory(dbConn)
@@ -114,11 +114,14 @@ var _ = BeforeEach(func() {
 		Version: "some-brt-version",
 	}
 
+	certsPath := "/etc/ssl/certs"
+
 	defaultWorkerPayload = atc.Worker{
 		ResourceTypes:   []atc.WorkerResourceType{defaultWorkerResourceType},
 		Name:            "default-worker",
 		GardenAddr:      "1.2.3.4:7777",
 		BaggageclaimURL: "5.6.7.8:7878",
+		CertsPath:       &certsPath,
 	}
 
 	defaultWorker, err = workerFactory.SaveWorker(defaultWorkerPayload, 0)

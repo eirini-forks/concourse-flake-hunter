@@ -1,16 +1,16 @@
-hash: 184a596d47c84a3936ab5eaf8d99a80ae1088fb2f9c62c40f4ded9f39c8aee0f
-updated: 2018-01-24T12:41:29.681257+02:00
+hash: 352de2e12cb99cff5d6556282eb23f939464bd4ab5788d48fb6b61892bb6ccf9
+updated: 2018-05-29T16:22:59.447096+01:00
 imports:
 - name: code.cloudfoundry.org/lager
   version: 0bfa98e49e7a976af91e918d47978f07c00b081f
 - name: github.com/bmizerany/pat
   version: 6226ea591a40176dd3ff9cd8eff81ed6ca721a00
 - name: github.com/concourse/atc
-  version: 46bf23f5e00f480971f0b6186e00b2fa566bd70f
+  version: 41728fc3047b8944cf5bbfd99afdb4d6088cc245
   subpackages:
   - event
 - name: github.com/concourse/go-concourse
-  version: ee7eca0318fdc5c47d723b4462d8bf5a6be7c027
+  version: 0efc7ba68468713fcf28a943248883ba43d5042e
   subpackages:
   - concourse
   - concourse/eventstream
@@ -25,10 +25,6 @@ imports:
   - proto
 - name: github.com/google/jsonapi
   version: e0fc4eed33051d6424c608a3db2f57a65217a185
-- name: github.com/hashicorp/errwrap
-  version: 7554cd9344cec97297fa6649b055a8c98c2a1e55
-- name: github.com/hashicorp/go-multierror
-  version: b7773ae218740a7be65057fc60b366a49b538a44
 - name: github.com/jessevdk/go-flags
   version: f88afde2fa19a30cf50ba4b05b3d13bc6bae3079
 - name: github.com/mitchellh/mapstructure

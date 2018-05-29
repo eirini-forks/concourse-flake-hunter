@@ -99,19 +99,6 @@ type FakeClient struct {
 	abortBuildReturnsOnCall map[int]struct {
 		result1 error
 	}
-	CreateBuildStub        func(plan atc.Plan) (atc.Build, error)
-	createBuildMutex       sync.RWMutex
-	createBuildArgsForCall []struct {
-		plan atc.Plan
-	}
-	createBuildReturns struct {
-		result1 atc.Build
-		result2 error
-	}
-	createBuildReturnsOnCall map[int]struct {
-		result1 atc.Build
-		result2 error
-	}
 	BuildPlanStub        func(buildID int) (atc.PublicBuildPlan, bool, error)
 	buildPlanMutex       sync.RWMutex
 	buildPlanArgsForCall []struct {
@@ -127,40 +114,36 @@ type FakeClient struct {
 		result2 bool
 		result3 error
 	}
-	CreatePipeStub        func() (atc.Pipe, error)
-	createPipeMutex       sync.RWMutex
-	createPipeArgsForCall []struct{}
-	createPipeReturns     struct {
-		result1 atc.Pipe
+	SendInputToBuildPlanStub        func(buildID int, planID atc.PlanID, src io.Reader) (bool, error)
+	sendInputToBuildPlanMutex       sync.RWMutex
+	sendInputToBuildPlanArgsForCall []struct {
+		buildID int
+		planID  atc.PlanID
+		src     io.Reader
+	}
+	sendInputToBuildPlanReturns struct {
+		result1 bool
 		result2 error
 	}
-	createPipeReturnsOnCall map[int]struct {
-		result1 atc.Pipe
+	sendInputToBuildPlanReturnsOnCall map[int]struct {
+		result1 bool
 		result2 error
 	}
-	ListContainersStub        func(queryList map[string]string) ([]atc.Container, error)
-	listContainersMutex       sync.RWMutex
-	listContainersArgsForCall []struct {
-		queryList map[string]string
+	ReadOutputFromBuildPlanStub        func(buildID int, planID atc.PlanID) (io.ReadCloser, bool, error)
+	readOutputFromBuildPlanMutex       sync.RWMutex
+	readOutputFromBuildPlanArgsForCall []struct {
+		buildID int
+		planID  atc.PlanID
 	}
-	listContainersReturns struct {
-		result1 []atc.Container
-		result2 error
+	readOutputFromBuildPlanReturns struct {
+		result1 io.ReadCloser
+		result2 bool
+		result3 error
 	}
-	listContainersReturnsOnCall map[int]struct {
-		result1 []atc.Container
-		result2 error
-	}
-	ListVolumesStub        func() ([]atc.Volume, error)
-	listVolumesMutex       sync.RWMutex
-	listVolumesArgsForCall []struct{}
-	listVolumesReturns     struct {
-		result1 []atc.Volume
-		result2 error
-	}
-	listVolumesReturnsOnCall map[int]struct {
-		result1 []atc.Volume
-		result2 error
+	readOutputFromBuildPlanReturnsOnCall map[int]struct {
+		result1 io.ReadCloser
+		result2 bool
+		result3 error
 	}
 	SaveWorkerStub        func(atc.Worker, *time.Duration) (*atc.Worker, error)
 	saveWorkerMutex       sync.RWMutex
@@ -603,57 +586,6 @@ func (fake *FakeClient) AbortBuildReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeClient) CreateBuild(plan atc.Plan) (atc.Build, error) {
-	fake.createBuildMutex.Lock()
-	ret, specificReturn := fake.createBuildReturnsOnCall[len(fake.createBuildArgsForCall)]
-	fake.createBuildArgsForCall = append(fake.createBuildArgsForCall, struct {
-		plan atc.Plan
-	}{plan})
-	fake.recordInvocation("CreateBuild", []interface{}{plan})
-	fake.createBuildMutex.Unlock()
-	if fake.CreateBuildStub != nil {
-		return fake.CreateBuildStub(plan)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fake.createBuildReturns.result1, fake.createBuildReturns.result2
-}
-
-func (fake *FakeClient) CreateBuildCallCount() int {
-	fake.createBuildMutex.RLock()
-	defer fake.createBuildMutex.RUnlock()
-	return len(fake.createBuildArgsForCall)
-}
-
-func (fake *FakeClient) CreateBuildArgsForCall(i int) atc.Plan {
-	fake.createBuildMutex.RLock()
-	defer fake.createBuildMutex.RUnlock()
-	return fake.createBuildArgsForCall[i].plan
-}
-
-func (fake *FakeClient) CreateBuildReturns(result1 atc.Build, result2 error) {
-	fake.CreateBuildStub = nil
-	fake.createBuildReturns = struct {
-		result1 atc.Build
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeClient) CreateBuildReturnsOnCall(i int, result1 atc.Build, result2 error) {
-	fake.CreateBuildStub = nil
-	if fake.createBuildReturnsOnCall == nil {
-		fake.createBuildReturnsOnCall = make(map[int]struct {
-			result1 atc.Build
-			result2 error
-		})
-	}
-	fake.createBuildReturnsOnCall[i] = struct {
-		result1 atc.Build
-		result2 error
-	}{result1, result2}
-}
-
 func (fake *FakeClient) BuildPlan(buildID int) (atc.PublicBuildPlan, bool, error) {
 	fake.buildPlanMutex.Lock()
 	ret, specificReturn := fake.buildPlanReturnsOnCall[len(fake.buildPlanArgsForCall)]
@@ -708,141 +640,112 @@ func (fake *FakeClient) BuildPlanReturnsOnCall(i int, result1 atc.PublicBuildPla
 	}{result1, result2, result3}
 }
 
-func (fake *FakeClient) CreatePipe() (atc.Pipe, error) {
-	fake.createPipeMutex.Lock()
-	ret, specificReturn := fake.createPipeReturnsOnCall[len(fake.createPipeArgsForCall)]
-	fake.createPipeArgsForCall = append(fake.createPipeArgsForCall, struct{}{})
-	fake.recordInvocation("CreatePipe", []interface{}{})
-	fake.createPipeMutex.Unlock()
-	if fake.CreatePipeStub != nil {
-		return fake.CreatePipeStub()
+func (fake *FakeClient) SendInputToBuildPlan(buildID int, planID atc.PlanID, src io.Reader) (bool, error) {
+	fake.sendInputToBuildPlanMutex.Lock()
+	ret, specificReturn := fake.sendInputToBuildPlanReturnsOnCall[len(fake.sendInputToBuildPlanArgsForCall)]
+	fake.sendInputToBuildPlanArgsForCall = append(fake.sendInputToBuildPlanArgsForCall, struct {
+		buildID int
+		planID  atc.PlanID
+		src     io.Reader
+	}{buildID, planID, src})
+	fake.recordInvocation("SendInputToBuildPlan", []interface{}{buildID, planID, src})
+	fake.sendInputToBuildPlanMutex.Unlock()
+	if fake.SendInputToBuildPlanStub != nil {
+		return fake.SendInputToBuildPlanStub(buildID, planID, src)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
 	}
-	return fake.createPipeReturns.result1, fake.createPipeReturns.result2
+	return fake.sendInputToBuildPlanReturns.result1, fake.sendInputToBuildPlanReturns.result2
 }
 
-func (fake *FakeClient) CreatePipeCallCount() int {
-	fake.createPipeMutex.RLock()
-	defer fake.createPipeMutex.RUnlock()
-	return len(fake.createPipeArgsForCall)
+func (fake *FakeClient) SendInputToBuildPlanCallCount() int {
+	fake.sendInputToBuildPlanMutex.RLock()
+	defer fake.sendInputToBuildPlanMutex.RUnlock()
+	return len(fake.sendInputToBuildPlanArgsForCall)
 }
 
-func (fake *FakeClient) CreatePipeReturns(result1 atc.Pipe, result2 error) {
-	fake.CreatePipeStub = nil
-	fake.createPipeReturns = struct {
-		result1 atc.Pipe
+func (fake *FakeClient) SendInputToBuildPlanArgsForCall(i int) (int, atc.PlanID, io.Reader) {
+	fake.sendInputToBuildPlanMutex.RLock()
+	defer fake.sendInputToBuildPlanMutex.RUnlock()
+	return fake.sendInputToBuildPlanArgsForCall[i].buildID, fake.sendInputToBuildPlanArgsForCall[i].planID, fake.sendInputToBuildPlanArgsForCall[i].src
+}
+
+func (fake *FakeClient) SendInputToBuildPlanReturns(result1 bool, result2 error) {
+	fake.SendInputToBuildPlanStub = nil
+	fake.sendInputToBuildPlanReturns = struct {
+		result1 bool
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeClient) CreatePipeReturnsOnCall(i int, result1 atc.Pipe, result2 error) {
-	fake.CreatePipeStub = nil
-	if fake.createPipeReturnsOnCall == nil {
-		fake.createPipeReturnsOnCall = make(map[int]struct {
-			result1 atc.Pipe
+func (fake *FakeClient) SendInputToBuildPlanReturnsOnCall(i int, result1 bool, result2 error) {
+	fake.SendInputToBuildPlanStub = nil
+	if fake.sendInputToBuildPlanReturnsOnCall == nil {
+		fake.sendInputToBuildPlanReturnsOnCall = make(map[int]struct {
+			result1 bool
 			result2 error
 		})
 	}
-	fake.createPipeReturnsOnCall[i] = struct {
-		result1 atc.Pipe
+	fake.sendInputToBuildPlanReturnsOnCall[i] = struct {
+		result1 bool
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeClient) ListContainers(queryList map[string]string) ([]atc.Container, error) {
-	fake.listContainersMutex.Lock()
-	ret, specificReturn := fake.listContainersReturnsOnCall[len(fake.listContainersArgsForCall)]
-	fake.listContainersArgsForCall = append(fake.listContainersArgsForCall, struct {
-		queryList map[string]string
-	}{queryList})
-	fake.recordInvocation("ListContainers", []interface{}{queryList})
-	fake.listContainersMutex.Unlock()
-	if fake.ListContainersStub != nil {
-		return fake.ListContainersStub(queryList)
+func (fake *FakeClient) ReadOutputFromBuildPlan(buildID int, planID atc.PlanID) (io.ReadCloser, bool, error) {
+	fake.readOutputFromBuildPlanMutex.Lock()
+	ret, specificReturn := fake.readOutputFromBuildPlanReturnsOnCall[len(fake.readOutputFromBuildPlanArgsForCall)]
+	fake.readOutputFromBuildPlanArgsForCall = append(fake.readOutputFromBuildPlanArgsForCall, struct {
+		buildID int
+		planID  atc.PlanID
+	}{buildID, planID})
+	fake.recordInvocation("ReadOutputFromBuildPlan", []interface{}{buildID, planID})
+	fake.readOutputFromBuildPlanMutex.Unlock()
+	if fake.ReadOutputFromBuildPlanStub != nil {
+		return fake.ReadOutputFromBuildPlanStub(buildID, planID)
 	}
 	if specificReturn {
-		return ret.result1, ret.result2
+		return ret.result1, ret.result2, ret.result3
 	}
-	return fake.listContainersReturns.result1, fake.listContainersReturns.result2
+	return fake.readOutputFromBuildPlanReturns.result1, fake.readOutputFromBuildPlanReturns.result2, fake.readOutputFromBuildPlanReturns.result3
 }
 
-func (fake *FakeClient) ListContainersCallCount() int {
-	fake.listContainersMutex.RLock()
-	defer fake.listContainersMutex.RUnlock()
-	return len(fake.listContainersArgsForCall)
+func (fake *FakeClient) ReadOutputFromBuildPlanCallCount() int {
+	fake.readOutputFromBuildPlanMutex.RLock()
+	defer fake.readOutputFromBuildPlanMutex.RUnlock()
+	return len(fake.readOutputFromBuildPlanArgsForCall)
 }
 
-func (fake *FakeClient) ListContainersArgsForCall(i int) map[string]string {
-	fake.listContainersMutex.RLock()
-	defer fake.listContainersMutex.RUnlock()
-	return fake.listContainersArgsForCall[i].queryList
+func (fake *FakeClient) ReadOutputFromBuildPlanArgsForCall(i int) (int, atc.PlanID) {
+	fake.readOutputFromBuildPlanMutex.RLock()
+	defer fake.readOutputFromBuildPlanMutex.RUnlock()
+	return fake.readOutputFromBuildPlanArgsForCall[i].buildID, fake.readOutputFromBuildPlanArgsForCall[i].planID
 }
 
-func (fake *FakeClient) ListContainersReturns(result1 []atc.Container, result2 error) {
-	fake.ListContainersStub = nil
-	fake.listContainersReturns = struct {
-		result1 []atc.Container
-		result2 error
-	}{result1, result2}
+func (fake *FakeClient) ReadOutputFromBuildPlanReturns(result1 io.ReadCloser, result2 bool, result3 error) {
+	fake.ReadOutputFromBuildPlanStub = nil
+	fake.readOutputFromBuildPlanReturns = struct {
+		result1 io.ReadCloser
+		result2 bool
+		result3 error
+	}{result1, result2, result3}
 }
 
-func (fake *FakeClient) ListContainersReturnsOnCall(i int, result1 []atc.Container, result2 error) {
-	fake.ListContainersStub = nil
-	if fake.listContainersReturnsOnCall == nil {
-		fake.listContainersReturnsOnCall = make(map[int]struct {
-			result1 []atc.Container
-			result2 error
+func (fake *FakeClient) ReadOutputFromBuildPlanReturnsOnCall(i int, result1 io.ReadCloser, result2 bool, result3 error) {
+	fake.ReadOutputFromBuildPlanStub = nil
+	if fake.readOutputFromBuildPlanReturnsOnCall == nil {
+		fake.readOutputFromBuildPlanReturnsOnCall = make(map[int]struct {
+			result1 io.ReadCloser
+			result2 bool
+			result3 error
 		})
 	}
-	fake.listContainersReturnsOnCall[i] = struct {
-		result1 []atc.Container
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeClient) ListVolumes() ([]atc.Volume, error) {
-	fake.listVolumesMutex.Lock()
-	ret, specificReturn := fake.listVolumesReturnsOnCall[len(fake.listVolumesArgsForCall)]
-	fake.listVolumesArgsForCall = append(fake.listVolumesArgsForCall, struct{}{})
-	fake.recordInvocation("ListVolumes", []interface{}{})
-	fake.listVolumesMutex.Unlock()
-	if fake.ListVolumesStub != nil {
-		return fake.ListVolumesStub()
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fake.listVolumesReturns.result1, fake.listVolumesReturns.result2
-}
-
-func (fake *FakeClient) ListVolumesCallCount() int {
-	fake.listVolumesMutex.RLock()
-	defer fake.listVolumesMutex.RUnlock()
-	return len(fake.listVolumesArgsForCall)
-}
-
-func (fake *FakeClient) ListVolumesReturns(result1 []atc.Volume, result2 error) {
-	fake.ListVolumesStub = nil
-	fake.listVolumesReturns = struct {
-		result1 []atc.Volume
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeClient) ListVolumesReturnsOnCall(i int, result1 []atc.Volume, result2 error) {
-	fake.ListVolumesStub = nil
-	if fake.listVolumesReturnsOnCall == nil {
-		fake.listVolumesReturnsOnCall = make(map[int]struct {
-			result1 []atc.Volume
-			result2 error
-		})
-	}
-	fake.listVolumesReturnsOnCall[i] = struct {
-		result1 []atc.Volume
-		result2 error
-	}{result1, result2}
+	fake.readOutputFromBuildPlanReturnsOnCall[i] = struct {
+		result1 io.ReadCloser
+		result2 bool
+		result3 error
+	}{result1, result2, result3}
 }
 
 func (fake *FakeClient) SaveWorker(arg1 atc.Worker, arg2 *time.Duration) (*atc.Worker, error) {
@@ -1237,16 +1140,12 @@ func (fake *FakeClient) Invocations() map[string][][]interface{} {
 	defer fake.buildResourcesMutex.RUnlock()
 	fake.abortBuildMutex.RLock()
 	defer fake.abortBuildMutex.RUnlock()
-	fake.createBuildMutex.RLock()
-	defer fake.createBuildMutex.RUnlock()
 	fake.buildPlanMutex.RLock()
 	defer fake.buildPlanMutex.RUnlock()
-	fake.createPipeMutex.RLock()
-	defer fake.createPipeMutex.RUnlock()
-	fake.listContainersMutex.RLock()
-	defer fake.listContainersMutex.RUnlock()
-	fake.listVolumesMutex.RLock()
-	defer fake.listVolumesMutex.RUnlock()
+	fake.sendInputToBuildPlanMutex.RLock()
+	defer fake.sendInputToBuildPlanMutex.RUnlock()
+	fake.readOutputFromBuildPlanMutex.RLock()
+	defer fake.readOutputFromBuildPlanMutex.RUnlock()
 	fake.saveWorkerMutex.RLock()
 	defer fake.saveWorkerMutex.RUnlock()
 	fake.listWorkersMutex.RLock()

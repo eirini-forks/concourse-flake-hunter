@@ -2,15 +2,13 @@ package teamserver
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"code.cloudfoundry.org/lager"
 
 	"github.com/concourse/atc"
-	"github.com/concourse/atc/api/auth"
+	"github.com/concourse/atc/api/accessor"
 	"github.com/concourse/atc/api/present"
-	"github.com/concourse/atc/db"
 	"github.com/concourse/skymarshal/provider"
 )
 
@@ -19,12 +17,7 @@ func (s *Server) SetTeam(w http.ResponseWriter, r *http.Request) {
 
 	hLog.Debug("setting-team")
 
-	authTeam, authTeamFound := auth.GetTeam(r)
-	if !authTeamFound {
-		hLog.Error("failed-to-get-team-from-auth", errors.New("failed-to-get-team-from-auth"))
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
+	acc := accessor.GetAccessor(r)
 
 	teamName := r.FormValue(":team_name")
 
@@ -36,19 +29,9 @@ func (s *Server) SetTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	atcTeam.Name = teamName
-	if !authTeam.IsAdmin() && !authTeam.IsAuthorized(teamName) {
+	if !acc.IsAdmin() && !acc.IsAuthorized(teamName) {
 		w.WriteHeader(http.StatusForbidden)
 		return
-	}
-
-	hLog.Debug("configured-authentication", lager.Data{"BasicAuth": atcTeam.BasicAuth, "ProviderAuth": atcTeam.Auth})
-
-	if atcTeam.BasicAuth != nil {
-		if atcTeam.BasicAuth.BasicAuthUsername == "" || atcTeam.BasicAuth.BasicAuthPassword == "" {
-			hLog.Info("missing-basic-auth-username-or-password")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
 	}
 
 	providers := provider.GetProviders()
@@ -63,17 +46,33 @@ func (s *Server) SetTeam(w http.ResponseWriter, r *http.Request) {
 
 		authConfig, err := p.UnmarshalConfig(config)
 		if err != nil {
-			hLog.Error("failed-to-unmarshall-auth", err)
+			hLog.Error("failed-to-unmarshal-auth", err, lager.Data{"provider": providerName})
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
 		err = authConfig.Validate()
 		if err != nil {
-			hLog.Error("request-body-validation-error", err)
+			hLog.Error("request-body-validation-error", err, lager.Data{"provider": providerName})
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+
+		err = authConfig.Finalize()
+		if err != nil {
+			hLog.Error("cannot-finalize-auth-config", err, lager.Data{"provider": providerName})
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		jsonConfig, err := p.MarshalConfig(authConfig)
+		if err != nil {
+			hLog.Error("cannot-marshal-auth-config", err, lager.Data{"provider": providerName})
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		atcTeam.Auth[providerName] = jsonConfig
 	}
 
 	team, found, err := s.teamFactory.FindTeam(teamName)
@@ -85,15 +84,16 @@ func (s *Server) SetTeam(w http.ResponseWriter, r *http.Request) {
 
 	if found {
 		hLog.Debug("updating-credentials")
-		err = s.updateCredentials(atcTeam, team)
+		err = team.UpdateProviderAuth(atcTeam.Auth)
 		if err != nil {
 			hLog.Error("failed-to-update-team", err, lager.Data{"teamName": teamName})
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-	} else if authTeam.IsAdmin() {
+	} else if acc.IsAdmin() {
 		hLog.Debug("creating team")
 
 		team, err = s.teamFactory.CreateTeam(atcTeam)
@@ -102,6 +102,7 @@ func (s *Server) SetTeam(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 	} else {
 		w.WriteHeader(http.StatusForbidden)
@@ -113,14 +114,4 @@ func (s *Server) SetTeam(w http.ResponseWriter, r *http.Request) {
 		hLog.Error("failed-to-encode-team", err)
 		w.WriteHeader(http.StatusInternalServerError)
 	}
-}
-
-func (s *Server) updateCredentials(atcTeam atc.Team, team db.Team) error {
-	err := team.UpdateBasicAuth(atcTeam.BasicAuth)
-	if err != nil {
-		return err
-	}
-
-	err = team.UpdateProviderAuth(atcTeam.Auth)
-	return err
 }

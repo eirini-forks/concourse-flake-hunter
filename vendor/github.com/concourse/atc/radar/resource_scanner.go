@@ -1,6 +1,7 @@
 package radar
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"time"
@@ -110,6 +111,7 @@ func (scanner *resourceScanner) scan(logger lager.Logger, resourceName string, f
 		err = scanner.typeScanner.Scan(logger.Session("resource-type-scanner"), parentType.Name())
 		if err != nil {
 			logger.Error("failed-to-scan-parent-resource-type-version", err)
+			scanner.setResourceCheckError(logger, savedResource, err)
 			return 0, err
 		}
 	}
@@ -251,8 +253,8 @@ func (scanner *resourceScanner) check(
 	}
 
 	res, err := scanner.resourceFactory.NewResource(
+		context.Background(),
 		logger,
-		nil,
 		db.NewResourceConfigCheckSessionContainerOwner(resourceConfigCheckSession, scanner.dbPipeline.TeamID()),
 		db.ContainerMetadata{
 			Type: db.ContainerTypeCheck,

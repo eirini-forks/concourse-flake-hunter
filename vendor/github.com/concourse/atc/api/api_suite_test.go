@@ -14,12 +14,14 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/concourse/atc/api"
+	"github.com/concourse/atc/api/accessor"
 	"github.com/concourse/atc/api/auth"
 	"github.com/concourse/atc/creds/credsfakes"
 	"github.com/concourse/atc/db"
 	"github.com/concourse/atc/db/dbfakes"
+	"github.com/concourse/atc/gc/gcfakes"
 
-	"github.com/concourse/atc/api/auth/authfakes"
+	"github.com/concourse/atc/api/accessor/accessorfakes"
 	"github.com/concourse/atc/api/containerserver/containerserverfakes"
 	"github.com/concourse/atc/api/jobserver/jobserverfakes"
 	"github.com/concourse/atc/api/resourceserver/resourceserverfakes"
@@ -34,16 +36,17 @@ var (
 	externalURL  = "https://example.com"
 	oAuthBaseURL = "https://oauth.example.com"
 
-	jwtValidator            *authfakes.FakeValidator
-	userContextReader       *authfakes.FakeUserContextReader
 	fakeEngine              *enginefakes.FakeEngine
 	fakeWorkerClient        *workerfakes.FakeClient
 	fakeWorkerProvider      *workerfakes.FakeWorkerProvider
-	fakeVolumeFactory       *dbfakes.FakeVolumeFactory
+	fakeVolumeRepository    *dbfakes.FakeVolumeRepository
 	fakeContainerRepository *dbfakes.FakeContainerRepository
+	fakeDestroyer           *gcfakes.FakeDestroyer
 	dbTeamFactory           *dbfakes.FakeTeamFactory
 	dbPipelineFactory       *dbfakes.FakePipelineFactory
+	dbJobFactory            *dbfakes.FakeJobFactory
 	fakePipeline            *dbfakes.FakePipeline
+	fakeAccessor            *accessorfakes.FakeAccessFactory
 	dbWorkerFactory         *dbfakes.FakeWorkerFactory
 	dbWorkerLifecycle       *dbfakes.FakeWorkerLifecycle
 	build                   *dbfakes.FakeBuild
@@ -54,7 +57,7 @@ var (
 	fakeVariablesFactory    *credsfakes.FakeVariablesFactory
 	interceptTimeoutFactory *containerserverfakes.FakeInterceptTimeoutFactory
 	interceptTimeout        *containerserverfakes.FakeInterceptTimeout
-	peerAddr                string
+	peerURL                 string
 	drain                   chan struct{}
 	expire                  time.Duration
 	isTLSEnabled            bool
@@ -90,6 +93,7 @@ func (f *fakeEventHandlerFactory) Construct(
 var _ = BeforeEach(func() {
 	dbTeamFactory = new(dbfakes.FakeTeamFactory)
 	dbPipelineFactory = new(dbfakes.FakePipelineFactory)
+	dbJobFactory = new(dbfakes.FakeJobFactory)
 	dbBuildFactory = new(dbfakes.FakeBuildFactory)
 
 	interceptTimeoutFactory = new(containerserverfakes.FakeInterceptTimeoutFactory)
@@ -101,16 +105,15 @@ var _ = BeforeEach(func() {
 	dbTeamFactory.FindTeamReturns(dbTeam, true, nil)
 	dbTeamFactory.GetByIDReturns(dbTeam)
 
+	fakeAccessor = new(accessorfakes.FakeAccessFactory)
 	fakePipeline = new(dbfakes.FakePipeline)
 	dbTeam.PipelineReturns(fakePipeline, true, nil)
 
 	dbWorkerFactory = new(dbfakes.FakeWorkerFactory)
 	dbWorkerLifecycle = new(dbfakes.FakeWorkerLifecycle)
 
-	jwtValidator = new(authfakes.FakeValidator)
-	userContextReader = new(authfakes.FakeUserContextReader)
+	peerURL = "http://127.0.0.1:1234"
 
-	peerAddr = "127.0.0.1:1234"
 	drain = make(chan struct{})
 
 	fakeEngine = new(enginefakes.FakeEngine)
@@ -120,8 +123,9 @@ var _ = BeforeEach(func() {
 	fakeSchedulerFactory = new(jobserverfakes.FakeSchedulerFactory)
 	fakeScannerFactory = new(resourceserverfakes.FakeScannerFactory)
 
-	fakeVolumeFactory = new(dbfakes.FakeVolumeFactory)
+	fakeVolumeRepository = new(dbfakes.FakeVolumeRepository)
 	fakeContainerRepository = new(dbfakes.FakeContainerRepository)
+	fakeDestroyer = new(gcfakes.FakeDestroyer)
 
 	fakeVariablesFactory = new(credsfakes.FakeVariablesFactory)
 
@@ -156,8 +160,6 @@ var _ = BeforeEach(func() {
 		externalURL,
 
 		wrappa.NewAPIAuthWrappa(
-			jwtValidator,
-			userContextReader,
 			checkPipelineAccessHandlerFactory,
 			checkBuildReadAccessHandlerFactory,
 			checkBuildWriteAccessHandlerFactory,
@@ -168,12 +170,14 @@ var _ = BeforeEach(func() {
 
 		dbTeamFactory,
 		dbPipelineFactory,
+		dbJobFactory,
 		dbWorkerFactory,
-		fakeVolumeFactory,
+		fakeVolumeRepository,
 		fakeContainerRepository,
+		fakeDestroyer,
 		dbBuildFactory,
 
-		peerAddr,
+		peerURL,
 		constructedEventHandler.Construct,
 		drain,
 
@@ -196,11 +200,12 @@ var _ = BeforeEach(func() {
 		fakeVariablesFactory,
 		interceptTimeoutFactory,
 	)
-	Expect(err).NotTo(HaveOccurred())
 
+	Expect(err).NotTo(HaveOccurred())
+	accessorHandler := accessor.NewHandler(handler, fakeAccessor)
 	handler = wrappa.LoggerHandler{
 		Logger:  logger,
-		Handler: handler,
+		Handler: accessorHandler,
 	}
 
 	server = httptest.NewServer(handler)

@@ -11,7 +11,7 @@ import (
 )
 
 type CredHubAtc struct {
-	CredHub *credhub.CredHub
+	CredHub lazyCredhub
 	logger  lager.Logger
 
 	PathPrefix   string
@@ -67,15 +67,21 @@ func (c CredHubAtc) findCred(path string) (credentials.Credential, bool, error) 
 	var cred credentials.Credential
 	var err error
 
-	_, err = c.CredHub.FindByPath(path)
+	ch, err := c.CredHub.CredHub()
 	if err != nil {
-		return cred, false, nil
+		return cred, false, err
 	}
 
-	cred, err = c.CredHub.GetLatestVersion(path)
+	_, err = ch.FindByPath(path)
+	if err != nil {
+		return cred, false, err
+	}
+
+	cred, err = ch.GetLatestVersion(path)
 	if _, ok := err.(*credhub.Error); ok {
 		return cred, false, nil
 	}
+
 	if err != nil {
 		return cred, false, err
 	}

@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"time"
 
 	"github.com/concourse/atc"
+	"github.com/concourse/atc/api/accessor/accessorfakes"
 	"github.com/concourse/atc/db"
 	"github.com/concourse/atc/db/dbfakes"
 	"github.com/concourse/skymarshal/provider"
@@ -24,14 +26,25 @@ func jsonEncode(object interface{}) *bytes.Buffer {
 	return bytes.NewBuffer(reqPayload)
 }
 
+func fakeData(contents string) *json.RawMessage {
+	data := []byte(contents)
+
+	return (*json.RawMessage)(&data)
+}
+
 var _ = Describe("Teams API", func() {
 	var (
-		fakeTeam *dbfakes.FakeTeam
+		fakeTeam   *dbfakes.FakeTeam
+		fakeaccess *accessorfakes.FakeAccess
 	)
 
 	BeforeEach(func() {
 		fakeTeam = new(dbfakes.FakeTeam)
+		fakeaccess = new(accessorfakes.FakeAccess)
+	})
 
+	JustBeforeEach(func() {
+		fakeAccessor.CreateReturns(fakeaccess)
 	})
 
 	Describe("GET /api/v1/teams", func() {
@@ -76,17 +89,16 @@ var _ = Describe("Teams API", func() {
 
 				fakeTeamTwo.IDReturns(9)
 				fakeTeamTwo.NameReturns("aliens")
-				fakeTeamTwo.BasicAuthReturns(&atc.BasicAuth{
-					BasicAuthUsername: "fake user",
-					BasicAuthPassword: "no, bad",
+				fakeTeamTwo.AuthReturns(map[string]*json.RawMessage{
+					"basicauth": fakeData(`{"username": "fake user", "password": "no, bad"}`),
 				})
 
-				data := []byte(`{"hello": "world"}`)
 				fakeTeamThree.IDReturns(22)
 				fakeTeamThree.NameReturns("predators")
 				fakeTeamThree.AuthReturns(map[string]*json.RawMessage{
-					"fake-provider": (*json.RawMessage)(&data),
+					"fake-provider": fakeData(`{"hello": "world"}`),
 				})
+
 				dbTeamFactory.GetTeamsReturns([]db.Team{fakeTeamOne, fakeTeamTwo, fakeTeamThree}, nil)
 			})
 
@@ -94,24 +106,28 @@ var _ = Describe("Teams API", func() {
 				Expect(response.StatusCode).To(Equal(http.StatusOK))
 			})
 
+			It("returns Content-Type 'application/json'", func() {
+				Expect(response.Header.Get("Content-Type")).To(Equal("application/json"))
+			})
+
 			It("returns the teams", func() {
 				body, err := ioutil.ReadAll(response.Body)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(body).To(MatchJSON(`[
-					{
-						"id": 5,
-						"name": "avengers"
-					},
-					{
-						"id": 9,
-						"name": "aliens"
-					},
-					{
-						"id": 22,
-						"name": "predators"
-					}
-				]`))
+ 					{
+ 						"id": 5,
+ 						"name": "avengers"
+ 					},
+ 					{
+ 						"id": 9,
+ 						"name": "aliens"
+ 					},
+ 					{
+ 						"id": 22,
+ 						"name": "predators"
+ 					}
+ 				]`))
 			})
 		})
 	})
@@ -119,8 +135,7 @@ var _ = Describe("Teams API", func() {
 	Describe("PUT /api/v1/teams/:team_name", func() {
 		var (
 			response *http.Response
-
-			atcTeam atc.Team
+			atcTeam  atc.Team
 		)
 
 		BeforeEach(func() {
@@ -143,14 +158,36 @@ var _ = Describe("Teams API", func() {
 
 		authorizedTeamTests := func() {
 			Context("when the team has basic auth configured", func() {
+				var (
+					fakeProviderName    = "basicauth"
+					fakeProviderFactory *providerfakes.FakeProviderFactory
+					fakeAuthConfig      *providerfakes.FakeAuthConfig
+				)
+				BeforeEach(func() {
+					fakeAuthData := fakeData(`{"username":"fries","password":"shake"}`)
+
+					atcTeam = atc.Team{
+						Auth: map[string]*json.RawMessage{
+							fakeProviderName: fakeAuthData,
+						},
+					}
+					fakeAuthConfig = new(providerfakes.FakeAuthConfig)
+					fakeProviderFactory = new(providerfakes.FakeProviderFactory)
+					fakeProviderFactory.UnmarshalConfigReturns(fakeAuthConfig, nil)
+					fakeProviderFactory.MarshalConfigReturns(fakeAuthData, nil)
+
+					provider.Register(fakeProviderName, fakeProviderFactory)
+				})
+
 				Context("when the basic auth is invalid", func() {
 					Context("when only password is given", func() {
 						BeforeEach(func() {
 							atcTeam = atc.Team{
-								BasicAuth: &atc.BasicAuth{
-									BasicAuthPassword: "Batman",
+								Auth: map[string]*json.RawMessage{
+									fakeProviderName: fakeData(`{"password": "fries"}`),
 								},
 							}
+							fakeAuthConfig.ValidateReturns(errors.New("nope"))
 						})
 
 						It("returns a 400 Bad Request", func() {
@@ -161,10 +198,11 @@ var _ = Describe("Teams API", func() {
 					Context("when only username is given", func() {
 						BeforeEach(func() {
 							atcTeam = atc.Team{
-								BasicAuth: &atc.BasicAuth{
-									BasicAuthUsername: "Ironman",
+								Auth: map[string]*json.RawMessage{
+									fakeProviderName: fakeData(`{"username": "fries"}`),
 								},
 							}
+							fakeAuthConfig.ValidateReturns(errors.New("nope"))
 						})
 
 						It("returns a 400 Bad Request", func() {
@@ -173,16 +211,27 @@ var _ = Describe("Teams API", func() {
 					})
 				})
 
-				Context("when the basic auth is valid", func() {
+				Context("when the auth config cannot be finalized", func() {
 					BeforeEach(func() {
-						atcTeam = atc.Team{
-							BasicAuth: &atc.BasicAuth{
-								BasicAuthPassword: "Kool",
-								BasicAuthUsername: "Aid",
-							},
-						}
+						fakeAuthConfig.FinalizeReturns(errors.New("finalize error"))
 					})
 
+					It("returns a 400 Bad Request", func() {
+						Expect(response.StatusCode).To(Equal(http.StatusBadRequest))
+					})
+				})
+
+				Context("when the auth config marshaling fails", func() {
+					BeforeEach(func() {
+						fakeProviderFactory.MarshalConfigReturns(nil, errors.New("fail"))
+					})
+
+					It("returns a 400 Bad Request", func() {
+						Expect(response.StatusCode).To(Equal(http.StatusBadRequest))
+					})
+				})
+
+				Context("when the basic auth is valid", func() {
 					Context("when the team is found", func() {
 						BeforeEach(func() {
 							dbTeamFactory.FindTeamReturns(fakeTeam, true, nil)
@@ -190,15 +239,15 @@ var _ = Describe("Teams API", func() {
 
 						It("updates basic auth", func() {
 							Expect(response.StatusCode).To(Equal(http.StatusOK))
-							Expect(fakeTeam.UpdateBasicAuthCallCount()).To(Equal(1))
+							Expect(fakeTeam.UpdateProviderAuthCallCount()).To(Equal(1))
 
-							updatedBasicAuth := fakeTeam.UpdateBasicAuthArgsForCall(0)
-							Expect(updatedBasicAuth).To(Equal(atcTeam.BasicAuth))
+							updatedBasicAuth := fakeTeam.UpdateProviderAuthArgsForCall(0)
+							Expect(updatedBasicAuth).To(Equal(atcTeam.Auth))
 						})
 
 						Context("when updating basic auth fails", func() {
 							BeforeEach(func() {
-								fakeTeam.UpdateBasicAuthReturns(errors.New("stop trying to make fetch happen"))
+								fakeTeam.UpdateProviderAuthReturns(errors.New("stop trying to make fetch happen"))
 							})
 
 							It("returns 500 Internal Server error", func() {
@@ -212,18 +261,17 @@ var _ = Describe("Teams API", func() {
 			Context("when the team has provider auth configured", func() {
 				var (
 					fakeProviderName    = "FakeProvider"
-					fakeProviderFactory *providerfakes.FakeTeamProvider
+					fakeProviderFactory *providerfakes.FakeProviderFactory
 				)
 				BeforeEach(func() {
-					fakeProviderFactory = new(providerfakes.FakeTeamProvider)
+					fakeProviderFactory = new(providerfakes.FakeProviderFactory)
 					provider.Register(fakeProviderName, fakeProviderFactory)
 				})
 				Context("when the provider is not found", func() {
 					BeforeEach(func() {
-						data := []byte(`{"mcdonalds": "fries"}`)
 						atcTeam = atc.Team{
 							Auth: map[string]*json.RawMessage{
-								"fake-suraci": (*json.RawMessage)(&data),
+								"fake-suraci": fakeData(`{"mcdonalds": "fries"}`),
 							},
 						}
 					})
@@ -235,10 +283,9 @@ var _ = Describe("Teams API", func() {
 				Context("when the provider is found", func() {
 					Context("when the auth is malformed", func() {
 						BeforeEach(func() {
-							data := []byte(`{"cold": "fries"}`)
 							atcTeam = atc.Team{
 								Auth: map[string]*json.RawMessage{
-									fakeProviderName: (*json.RawMessage)(&data),
+									fakeProviderName: fakeData(`{"cold": "fries"}`),
 								},
 							}
 							fakeProviderFactory.UnmarshalConfigReturns(nil, errors.New("nope not this time"))
@@ -252,13 +299,14 @@ var _ = Describe("Teams API", func() {
 						var fakeAuthConfig *providerfakes.FakeAuthConfig
 						BeforeEach(func() {
 							fakeAuthConfig = new(providerfakes.FakeAuthConfig)
-							data := []byte(`{"mcdonalds":"fries"}`)
+							fakeAuthData := fakeData(`{"mcdonalds":"fries"}`)
 							atcTeam = atc.Team{
 								Auth: map[string]*json.RawMessage{
-									fakeProviderName: (*json.RawMessage)(&data),
+									fakeProviderName: fakeAuthData,
 								},
 							}
 							fakeProviderFactory.UnmarshalConfigReturns(fakeAuthConfig, nil)
+							fakeProviderFactory.MarshalConfigReturns(fakeAuthData, nil)
 						})
 						Context("when the auth is invalid", func() {
 							BeforeEach(func() {
@@ -305,8 +353,9 @@ var _ = Describe("Teams API", func() {
 
 		Context("when the requester team is authorized as an admin team", func() {
 			BeforeEach(func() {
-				jwtValidator.IsAuthenticatedReturns(true)
-				userContextReader.GetTeamReturns("magic-admin-team", true, true)
+				fakeaccess.IsAuthenticatedReturns(true)
+				fakeaccess.IsAuthenticatedReturns(true)
+				fakeaccess.IsAdminReturns(true)
 			})
 
 			authorizedTeamTests()
@@ -341,8 +390,8 @@ var _ = Describe("Teams API", func() {
 
 		Context("when the requester team is authorized as the team being set", func() {
 			BeforeEach(func() {
-				jwtValidator.IsAuthenticatedReturns(true)
-				userContextReader.GetTeamReturns("some-team", false, true)
+				fakeaccess.IsAuthenticatedReturns(true)
+				fakeaccess.IsAuthorizedReturns(true)
 			})
 
 			authorizedTeamTests()
@@ -365,7 +414,6 @@ var _ = Describe("Teams API", func() {
 		var request *http.Request
 		var response *http.Response
 
-		var team db.Team
 		var teamName string
 
 		BeforeEach(func() {
@@ -388,8 +436,8 @@ var _ = Describe("Teams API", func() {
 			})
 
 			BeforeEach(func() {
-				jwtValidator.IsAuthenticatedReturns(true)
-				userContextReader.GetTeamReturns(atc.DefaultTeamName, true, true)
+				fakeaccess.IsAuthenticatedReturns(true)
+				fakeaccess.IsAdminReturns(true)
 			})
 
 			Context("when there's a problem finding teams", func() {
@@ -411,6 +459,10 @@ var _ = Describe("Teams API", func() {
 					Expect(response.StatusCode).To(Equal(http.StatusNoContent))
 				})
 
+				It("receives the correct team name", func() {
+					Expect(dbTeamFactory.FindTeamCallCount()).To(Equal(1))
+					Expect(dbTeamFactory.FindTeamArgsForCall(0)).To(Equal(teamName))
+				})
 				It("deletes the team from the DB", func() {
 					Expect(fakeTeam.DeleteCallCount()).To(Equal(1))
 					//TODO delete the build events via a table drop rather
@@ -466,34 +518,12 @@ var _ = Describe("Teams API", func() {
 			})
 
 			BeforeEach(func() {
-				jwtValidator.IsAuthenticatedReturns(true)
-				userContextReader.GetTeamReturns(atc.DefaultTeamName, false, true)
+				fakeaccess.IsAuthenticatedReturns(true)
+				fakeaccess.IsAdminReturns(false)
 			})
 
 			It("returns 403 forbidden", func() {
 				Expect(response.StatusCode).To(Equal(http.StatusForbidden))
-			})
-		})
-
-		Context("when the requester's team cannot be determined", func() {
-			JustBeforeEach(func() {
-				path := fmt.Sprintf("%s/api/v1/teams/%s", server.URL, teamName)
-
-				var err error
-				request, err = http.NewRequest("DELETE", path, jsonEncode(team))
-				Expect(err).NotTo(HaveOccurred())
-
-				response, err = client.Do(request)
-				Expect(err).NotTo(HaveOccurred())
-			})
-
-			BeforeEach(func() {
-				jwtValidator.IsAuthenticatedReturns(true)
-				userContextReader.GetTeamReturns("", false, false)
-			})
-
-			It("returns 500 internal server error", func() {
-				Expect(response.StatusCode).To(Equal(http.StatusInternalServerError))
 			})
 		})
 	})
@@ -520,13 +550,13 @@ var _ = Describe("Teams API", func() {
 
 		Context("when authenticated", func() {
 			BeforeEach(func() {
-				jwtValidator.IsAuthenticatedReturns(true)
+				fakeaccess.IsAuthenticatedReturns(true)
 			})
 			Context("when requester belongs to an admin team", func() {
 				BeforeEach(func() {
 					teamName = "a-team"
 					fakeTeam.NameReturns(teamName)
-					userContextReader.GetTeamReturns(atc.DefaultTeamName, true, true)
+					fakeaccess.IsAdminReturns(true)
 					dbTeamFactory.FindTeamReturns(fakeTeam, true, nil)
 				})
 
@@ -549,7 +579,7 @@ var _ = Describe("Teams API", func() {
 				BeforeEach(func() {
 					teamName = "a-team"
 					fakeTeam.NameReturns(teamName)
-					userContextReader.GetTeamReturns("a-team", true, true)
+					fakeaccess.IsAuthorizedReturns(true)
 					dbTeamFactory.FindTeamReturns(fakeTeam, true, nil)
 				})
 
@@ -572,7 +602,7 @@ var _ = Describe("Teams API", func() {
 				BeforeEach(func() {
 					teamName = "a-team"
 					fakeTeam.NameReturns(teamName)
-					userContextReader.GetTeamReturns("another-team", false, true)
+					fakeaccess.IsAuthorizedReturns(false)
 					dbTeamFactory.FindTeamReturns(fakeTeam, true, nil)
 				})
 
@@ -585,12 +615,175 @@ var _ = Describe("Teams API", func() {
 
 		Context("when not authenticated", func() {
 			BeforeEach(func() {
-				jwtValidator.IsAuthenticatedReturns(false)
+				fakeaccess.IsAuthenticatedReturns(false)
 			})
 
 			It("returns 401 Unauthorized", func() {
 				Expect(response.StatusCode).To(Equal(http.StatusUnauthorized))
 				Expect(fakeTeam.RenameCallCount()).To(Equal(0))
+			})
+		})
+	})
+
+	Describe("GET /api/v1/teams/:team_name/builds", func() {
+		var (
+			response    *http.Response
+			queryParams string
+			teamName    string
+		)
+
+		BeforeEach(func() {
+			teamName = "some-team"
+		})
+
+		JustBeforeEach(func() {
+			var err error
+
+			response, err = client.Get(server.URL + "/api/v1/teams/" + teamName + "/builds" + queryParams)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		Context("when not authenticated", func() {
+			BeforeEach(func() {
+				fakeaccess.IsAuthenticatedReturns(false)
+				dbTeamFactory.FindTeamReturns(fakeTeam, true, nil)
+			})
+
+			It("returns 401", func() {
+				Expect(response.StatusCode).To(Equal(http.StatusUnauthorized))
+				Expect(fakeTeam.BuildsCallCount()).To(Equal(0))
+			})
+		})
+
+		Context("when authenticated", func() {
+			BeforeEach(func() {
+				fakeaccess.IsAuthenticatedReturns(true)
+				dbTeamFactory.FindTeamReturns(fakeTeam, true, nil)
+			})
+
+			Context("when no params are passed", func() {
+				It("does not set defaults for since and until", func() {
+					Expect(fakeTeam.BuildsCallCount()).To(Equal(1))
+
+					page := fakeTeam.BuildsArgsForCall(0)
+					Expect(page).To(Equal(db.Page{
+						Since: 0,
+						Until: 0,
+						Limit: 100,
+					}))
+				})
+			})
+
+			Context("when all the params are passed", func() {
+				BeforeEach(func() {
+					queryParams = "?since=2&until=3&limit=8"
+				})
+
+				It("passes them through", func() {
+					Expect(fakeTeam.BuildsCallCount()).To(Equal(1))
+
+					page := fakeTeam.BuildsArgsForCall(0)
+					Expect(page).To(Equal(db.Page{
+						Since: 2,
+						Until: 3,
+						Limit: 8,
+					}))
+				})
+			})
+
+			Context("when getting the builds succeeds", func() {
+				var returnedBuilds []db.Build
+
+				BeforeEach(func() {
+					queryParams = "?since=5&limit=2"
+
+					build1 := new(dbfakes.FakeBuild)
+					build1.IDReturns(4)
+					build1.NameReturns("2")
+					build1.JobNameReturns("some-job")
+					build1.PipelineNameReturns("some-pipeline")
+					build1.TeamNameReturns("some-team")
+					build1.StatusReturns(db.BuildStatusStarted)
+					build1.StartTimeReturns(time.Unix(1, 0))
+					build1.EndTimeReturns(time.Unix(100, 0))
+
+					build2 := new(dbfakes.FakeBuild)
+					build2.IDReturns(2)
+					build2.NameReturns("1")
+					build2.JobNameReturns("some-job")
+					build2.PipelineNameReturns("some-pipeline")
+					build2.TeamNameReturns("some-team")
+					build2.StatusReturns(db.BuildStatusSucceeded)
+					build2.StartTimeReturns(time.Unix(101, 0))
+					build2.EndTimeReturns(time.Unix(200, 0))
+
+					returnedBuilds = []db.Build{build1, build2}
+					fakeTeam.BuildsReturns(returnedBuilds, db.Pagination{}, nil)
+				})
+
+				It("returns 200 OK", func() {
+					Expect(response.StatusCode).To(Equal(http.StatusOK))
+				})
+
+				It("returns Content-Type 'application/json'", func() {
+					Expect(response.Header.Get("Content-Type")).To(Equal("application/json"))
+				})
+
+				It("returns the builds", func() {
+					body, err := ioutil.ReadAll(response.Body)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(body).To(MatchJSON(`[
+					{
+						"id": 4,
+						"name": "2",
+						"job_name": "some-job",
+						"status": "started",
+						"api_url": "/api/v1/builds/4",
+						"pipeline_name":"some-pipeline",
+						"team_name": "some-team",
+						"start_time": 1,
+						"end_time": 100
+					},
+					{
+						"id": 2,
+						"name": "1",
+						"job_name": "some-job",
+						"status": "succeeded",
+						"api_url": "/api/v1/builds/2",
+						"pipeline_name": "some-pipeline",
+						"team_name": "some-team",
+						"start_time": 101,
+						"end_time": 200
+					}
+				]`))
+				})
+
+				Context("when next/previous pages are available", func() {
+					BeforeEach(func() {
+						fakeTeam.BuildsReturns(returnedBuilds, db.Pagination{
+							Previous: &db.Page{Until: 4, Limit: 2},
+							Next:     &db.Page{Since: 2, Limit: 2},
+						}, nil)
+					})
+
+					It("returns Link headers per rfc5988", func() {
+						Expect(response.Header["Link"]).To(ConsistOf([]string{
+							fmt.Sprintf(`<%s/api/v1/teams/some-team/builds?until=4&limit=2>; rel="previous"`, externalURL),
+							fmt.Sprintf(`<%s/api/v1/teams/some-team/builds?since=2&limit=2>; rel="next"`, externalURL),
+						}))
+					})
+				})
+			})
+
+			Context("when getting the build fails", func() {
+				BeforeEach(func() {
+					fakeTeam.BuildsReturns(nil, db.Pagination{}, errors.New("oh no!"))
+				})
+
+				It("returns 404 Not Found", func() {
+					Expect(response.StatusCode).To(Equal(http.StatusNotFound))
+				})
 			})
 		})
 	})

@@ -1,7 +1,7 @@
 package worker
 
 import (
-	"os"
+	"context"
 	"time"
 
 	"code.cloudfoundry.org/garden"
@@ -16,8 +16,8 @@ import (
 
 type Client interface {
 	FindOrCreateContainer(
+		context.Context,
 		lager.Logger,
-		<-chan os.Signal,
 		ImageFetchingDelegate,
 		db.ContainerOwner,
 		db.ContainerMetadata,
@@ -41,6 +41,12 @@ type Client interface {
 type InputSource interface {
 	Source() ArtifactSource
 	DestinationPath() string
+}
+
+//go:generate counterfeiter . BindMountSource
+
+type BindMountSource interface {
+	VolumeOn(Worker) (garden.BindMount, bool, error)
 }
 
 type VolumeSpec struct {

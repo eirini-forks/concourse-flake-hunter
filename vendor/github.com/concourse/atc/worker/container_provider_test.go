@@ -2,11 +2,10 @@ package worker_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"os"
-	"strings"
 	"time"
 
 	"code.cloudfoundry.org/clock/fakeclock"
@@ -36,14 +35,15 @@ var _ = Describe("ContainerProvider", func() {
 		fakeCreatingContainer *dbfakes.FakeCreatingContainer
 		fakeCreatedContainer  *dbfakes.FakeCreatedContainer
 
-		fakeGardenClient            *gardenfakes.FakeClient
+		fakeGardenClient *gardenfakes.FakeClient
+		//fakeReaperClient            *reaperfakes.FakeReaperClient
 		fakeGardenContainer         *gardenfakes.FakeContainer
 		fakeBaggageclaimClient      *baggageclaimfakes.FakeClient
 		fakeVolumeClient            *workerfakes.FakeVolumeClient
 		fakeImageFactory            *workerfakes.FakeImageFactory
 		fakeImage                   *workerfakes.FakeImage
 		fakeDBTeam                  *dbfakes.FakeTeam
-		fakeDBVolumeFactory         *dbfakes.FakeVolumeFactory
+		fakeDBVolumeRepository      *dbfakes.FakeVolumeRepository
 		fakeDBResourceCacheFactory  *dbfakes.FakeResourceCacheFactory
 		fakeDBResourceConfigFactory *dbfakes.FakeResourceConfigFactory
 		fakeLockFactory             *lockfakes.FakeLockFactory
@@ -54,14 +54,14 @@ var _ = Describe("ContainerProvider", func() {
 		fakeRemoteInput   *workerfakes.FakeInputSource
 		fakeRemoteInputAS *workerfakes.FakeArtifactSource
 
+		fakeBindMount *workerfakes.FakeBindMountSource
+
 		fakeRemoteInputContainerVolume *workerfakes.FakeVolume
 		fakeLocalVolume                *workerfakes.FakeVolume
 		fakeOutputVolume               *workerfakes.FakeVolume
 		fakeLocalCOWVolume             *workerfakes.FakeVolume
 
-		fakeCertsVolume *baggageclaimfakes.FakeVolume
-
-		cancel             <-chan os.Signal
+		ctx                context.Context
 		containerSpec      ContainerSpec
 		fakeContainerOwner *dbfakes.FakeContainerOwner
 		containerMetadata  db.ContainerMetadata
@@ -87,6 +87,7 @@ var _ = Describe("ContainerProvider", func() {
 
 		fakeGardenClient = new(gardenfakes.FakeClient)
 		fakeBaggageclaimClient = new(baggageclaimfakes.FakeClient)
+		//fakeReaperClient = new(reaperfakes.FakeReaperClient)
 		fakeVolumeClient = new(workerfakes.FakeVolumeClient)
 		fakeImageFactory = new(workerfakes.FakeImageFactory)
 		fakeImage = new(workerfakes.FakeImage)
@@ -102,7 +103,7 @@ var _ = Describe("ContainerProvider", func() {
 		fakeDBTeamFactory := new(dbfakes.FakeTeamFactory)
 		fakeDBTeam = new(dbfakes.FakeTeam)
 		fakeDBTeamFactory.GetByIDReturns(fakeDBTeam)
-		fakeDBVolumeFactory = new(dbfakes.FakeVolumeFactory)
+		fakeDBVolumeRepository = new(dbfakes.FakeVolumeRepository)
 		fakeClock := fakeclock.NewFakeClock(time.Unix(0, 123))
 		fakeDBResourceCacheFactory = new(dbfakes.FakeResourceCacheFactory)
 		fakeDBResourceConfigFactory = new(dbfakes.FakeResourceConfigFactory)
@@ -121,7 +122,7 @@ var _ = Describe("ContainerProvider", func() {
 			fakeDBWorker,
 			fakeClock,
 			fakeImageFactory,
-			fakeDBVolumeFactory,
+			fakeDBVolumeRepository,
 			fakeDBTeamFactory,
 			fakeLockFactory,
 		)
@@ -136,6 +137,13 @@ var _ = Describe("ContainerProvider", func() {
 		})
 		fakeLocalInputAS.VolumeOnReturns(fakeLocalVolume, true, nil)
 		fakeLocalInput.SourceReturns(fakeLocalInputAS)
+
+		fakeBindMount = new(workerfakes.FakeBindMountSource)
+		fakeBindMount.VolumeOnReturns(garden.BindMount{
+			SrcPath: "some/source",
+			DstPath: "some/destination",
+			Mode:    garden.BindMountModeRO,
+		}, true, nil)
 
 		fakeRemoteInput = new(workerfakes.FakeInputSource)
 		fakeRemoteInput.DestinationPathReturns("/some/work-dir/remote-input")
@@ -192,7 +200,7 @@ var _ = Describe("ContainerProvider", func() {
 			return volume, nil
 		}
 
-		cancel = make(chan os.Signal)
+		ctx = context.Background()
 
 		fakeContainerOwner = new(dbfakes.FakeContainerOwner)
 
@@ -228,6 +236,9 @@ var _ = Describe("ContainerProvider", func() {
 			Outputs: OutputPaths{
 				"some-output": "/some/work-dir/output",
 			},
+			BindMounts: []BindMountSource{
+				fakeBindMount,
+			},
 		}
 
 		resourceTypes = creds.NewVersionedResourceTypes(variables, atc.VersionedResourceTypes{
@@ -242,7 +253,7 @@ var _ = Describe("ContainerProvider", func() {
 	})
 
 	CertsVolumeExists := func() {
-		fakeCertsVolume = new(baggageclaimfakes.FakeVolume)
+		fakeCertsVolume := new(baggageclaimfakes.FakeVolume)
 		fakeBaggageclaimClient.LookupVolumeReturns(fakeCertsVolume, true, nil)
 	}
 
@@ -348,11 +359,27 @@ var _ = Describe("ContainerProvider", func() {
 	}
 
 	ItHandlesNonExistentContainer := func(createDatabaseCallCountFunc func() int) {
-		certsVolumeStream := ioutil.NopCloser(strings.NewReader("certs"))
+		Context("when the certs volume does not exist on the worker", func() {
+			BeforeEach(func() {
+				fakeBaggageclaimClient.LookupVolumeReturns(nil, false, nil)
+			})
+			It("creates the container in garden, but does not bind mount any certs", func() {
+				Expect(fakeGardenClient.CreateCallCount()).To(Equal(1))
+				actualSpec := fakeGardenClient.CreateArgsForCall(0)
+				Expect(actualSpec.BindMounts).ToNot(ContainElement(
+					garden.BindMount{
+						SrcPath: "/the/certs/volume/path",
+						DstPath: "/etc/ssl/certs",
+						Mode:    garden.BindMountModeRO,
+					},
+				))
+			})
+		})
 
 		BeforeEach(func() {
-			CertsVolumeExists()
-			fakeCertsVolume.StreamOutReturns(certsVolumeStream, nil)
+			fakeCertsVolume := new(baggageclaimfakes.FakeVolume)
+			fakeCertsVolume.PathReturns("/the/certs/volume/path")
+			fakeBaggageclaimClient.LookupVolumeReturns(fakeCertsVolume, true, nil)
 		})
 
 		It("gets image", func() {
@@ -371,9 +398,9 @@ var _ = Describe("ContainerProvider", func() {
 			Expect(actualResourceTypes).To(Equal(resourceTypes))
 
 			Expect(fakeImage.FetchForContainerCallCount()).To(Equal(1))
-			_, actualCancel, actualContainer := fakeImage.FetchForContainerArgsForCall(0)
+			actualCtx, _, actualContainer := fakeImage.FetchForContainerArgsForCall(0)
 			Expect(actualContainer).To(Equal(fakeCreatingContainer))
-			Expect(actualCancel).To(Equal(cancel))
+			Expect(actualCtx).To(Equal(ctx))
 		})
 
 		It("creates container in database", func() {
@@ -393,6 +420,11 @@ var _ = Describe("ContainerProvider", func() {
 				RootFSPath: "some-image-url",
 				Properties: garden.Properties{"user": "some-user"},
 				BindMounts: []garden.BindMount{
+					{
+						SrcPath: "some/source",
+						DstPath: "some/destination",
+						Mode:    garden.BindMountModeRO,
+					},
 					{
 						SrcPath: "/fake/scratch/volume",
 						DstPath: "/scratch",
@@ -437,16 +469,6 @@ var _ = Describe("ContainerProvider", func() {
 				"/some/work-dir/local-input":  VolumeSpec{Strategy: fakeLocalVolume.COWStrategy()},
 				"/some/work-dir/remote-input": VolumeSpec{Strategy: baggageclaim.EmptyStrategy{}},
 			}))
-		})
-
-		It("streams certs into the container", func() {
-			Expect(fakeCertsVolume.StreamOutCallCount()).To(Equal(1))
-
-			Expect(fakeGardenContainer.StreamInCallCount()).To(Equal(1))
-
-			streamInSpec := fakeGardenContainer.StreamInArgsForCall(0)
-			Expect(streamInSpec.TarStream).To(Equal(certsVolumeStream))
-			Expect(streamInSpec.Path).To(Equal("/etc/ssl/certs/"))
 		})
 
 		It("streams remote inputs into newly created container volumes", func() {
@@ -509,6 +531,11 @@ var _ = Describe("ContainerProvider", func() {
 
 				actualSpec := fakeGardenClient.CreateArgsForCall(0)
 				Expect(actualSpec.BindMounts).To(Equal([]garden.BindMount{
+					{
+						SrcPath: "some/source",
+						DstPath: "some/destination",
+						Mode:    garden.BindMountModeRO,
+					},
 					{
 						SrcPath: "/fake/scratch/volume",
 						DstPath: "/scratch",
@@ -578,8 +605,8 @@ var _ = Describe("ContainerProvider", func() {
 
 		JustBeforeEach(func() {
 			findOrCreateContainer, findOrCreateErr = containerProvider.FindOrCreateContainer(
+				ctx,
 				logger,
-				cancel,
 				fakeContainerOwner,
 				fakeImageFetchingDelegate,
 				containerMetadata,
@@ -635,7 +662,7 @@ var _ = Describe("ContainerProvider", func() {
 				fakeContainer = new(gardenfakes.FakeContainer)
 				fakeContainer.HandleReturns("provider-handle")
 
-				fakeDBVolumeFactory.FindVolumesForContainerReturns([]db.CreatedVolume{}, nil)
+				fakeDBVolumeRepository.FindVolumesForContainerReturns([]db.CreatedVolume{}, nil)
 
 				fakeDBTeam.FindCreatedContainerByHandleReturns(fakeCreatedContainer, true, nil)
 				fakeGardenClient.LookupReturns(fakeContainer, nil)
@@ -686,7 +713,7 @@ var _ = Describe("ContainerProvider", func() {
 
 					dbVolume1 := new(dbfakes.FakeCreatedVolume)
 					dbVolume2 := new(dbfakes.FakeCreatedVolume)
-					fakeDBVolumeFactory.FindVolumesForContainerReturns([]db.CreatedVolume{dbVolume1, dbVolume2}, nil)
+					fakeDBVolumeRepository.FindVolumesForContainerReturns([]db.CreatedVolume{dbVolume1, dbVolume2}, nil)
 					dbVolume1.HandleReturns("handle-1")
 					dbVolume2.HandleReturns("handle-2")
 					dbVolume1.PathReturns("/handle-1/path")

@@ -34,6 +34,33 @@ type FakeContainerRepository struct {
 		result1 []db.FailedContainer
 		result2 error
 	}
+	FindDestroyingContainersStub        func(workerName string) ([]string, error)
+	findDestroyingContainersMutex       sync.RWMutex
+	findDestroyingContainersArgsForCall []struct {
+		workerName string
+	}
+	findDestroyingContainersReturns struct {
+		result1 []string
+		result2 error
+	}
+	findDestroyingContainersReturnsOnCall map[int]struct {
+		result1 []string
+		result2 error
+	}
+	RemoveDestroyingContainersStub        func(workerName string, currentHandles []string) (int, error)
+	removeDestroyingContainersMutex       sync.RWMutex
+	removeDestroyingContainersArgsForCall []struct {
+		workerName     string
+		currentHandles []string
+	}
+	removeDestroyingContainersReturns struct {
+		result1 int
+		result2 error
+	}
+	removeDestroyingContainersReturnsOnCall map[int]struct {
+		result1 int
+		result2 error
+	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
@@ -130,6 +157,114 @@ func (fake *FakeContainerRepository) FindFailedContainersReturnsOnCall(i int, re
 	}{result1, result2}
 }
 
+func (fake *FakeContainerRepository) FindDestroyingContainers(workerName string) ([]string, error) {
+	fake.findDestroyingContainersMutex.Lock()
+	ret, specificReturn := fake.findDestroyingContainersReturnsOnCall[len(fake.findDestroyingContainersArgsForCall)]
+	fake.findDestroyingContainersArgsForCall = append(fake.findDestroyingContainersArgsForCall, struct {
+		workerName string
+	}{workerName})
+	fake.recordInvocation("FindDestroyingContainers", []interface{}{workerName})
+	fake.findDestroyingContainersMutex.Unlock()
+	if fake.FindDestroyingContainersStub != nil {
+		return fake.FindDestroyingContainersStub(workerName)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fake.findDestroyingContainersReturns.result1, fake.findDestroyingContainersReturns.result2
+}
+
+func (fake *FakeContainerRepository) FindDestroyingContainersCallCount() int {
+	fake.findDestroyingContainersMutex.RLock()
+	defer fake.findDestroyingContainersMutex.RUnlock()
+	return len(fake.findDestroyingContainersArgsForCall)
+}
+
+func (fake *FakeContainerRepository) FindDestroyingContainersArgsForCall(i int) string {
+	fake.findDestroyingContainersMutex.RLock()
+	defer fake.findDestroyingContainersMutex.RUnlock()
+	return fake.findDestroyingContainersArgsForCall[i].workerName
+}
+
+func (fake *FakeContainerRepository) FindDestroyingContainersReturns(result1 []string, result2 error) {
+	fake.FindDestroyingContainersStub = nil
+	fake.findDestroyingContainersReturns = struct {
+		result1 []string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeContainerRepository) FindDestroyingContainersReturnsOnCall(i int, result1 []string, result2 error) {
+	fake.FindDestroyingContainersStub = nil
+	if fake.findDestroyingContainersReturnsOnCall == nil {
+		fake.findDestroyingContainersReturnsOnCall = make(map[int]struct {
+			result1 []string
+			result2 error
+		})
+	}
+	fake.findDestroyingContainersReturnsOnCall[i] = struct {
+		result1 []string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeContainerRepository) RemoveDestroyingContainers(workerName string, currentHandles []string) (int, error) {
+	var currentHandlesCopy []string
+	if currentHandles != nil {
+		currentHandlesCopy = make([]string, len(currentHandles))
+		copy(currentHandlesCopy, currentHandles)
+	}
+	fake.removeDestroyingContainersMutex.Lock()
+	ret, specificReturn := fake.removeDestroyingContainersReturnsOnCall[len(fake.removeDestroyingContainersArgsForCall)]
+	fake.removeDestroyingContainersArgsForCall = append(fake.removeDestroyingContainersArgsForCall, struct {
+		workerName     string
+		currentHandles []string
+	}{workerName, currentHandlesCopy})
+	fake.recordInvocation("RemoveDestroyingContainers", []interface{}{workerName, currentHandlesCopy})
+	fake.removeDestroyingContainersMutex.Unlock()
+	if fake.RemoveDestroyingContainersStub != nil {
+		return fake.RemoveDestroyingContainersStub(workerName, currentHandles)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fake.removeDestroyingContainersReturns.result1, fake.removeDestroyingContainersReturns.result2
+}
+
+func (fake *FakeContainerRepository) RemoveDestroyingContainersCallCount() int {
+	fake.removeDestroyingContainersMutex.RLock()
+	defer fake.removeDestroyingContainersMutex.RUnlock()
+	return len(fake.removeDestroyingContainersArgsForCall)
+}
+
+func (fake *FakeContainerRepository) RemoveDestroyingContainersArgsForCall(i int) (string, []string) {
+	fake.removeDestroyingContainersMutex.RLock()
+	defer fake.removeDestroyingContainersMutex.RUnlock()
+	return fake.removeDestroyingContainersArgsForCall[i].workerName, fake.removeDestroyingContainersArgsForCall[i].currentHandles
+}
+
+func (fake *FakeContainerRepository) RemoveDestroyingContainersReturns(result1 int, result2 error) {
+	fake.RemoveDestroyingContainersStub = nil
+	fake.removeDestroyingContainersReturns = struct {
+		result1 int
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeContainerRepository) RemoveDestroyingContainersReturnsOnCall(i int, result1 int, result2 error) {
+	fake.RemoveDestroyingContainersStub = nil
+	if fake.removeDestroyingContainersReturnsOnCall == nil {
+		fake.removeDestroyingContainersReturnsOnCall = make(map[int]struct {
+			result1 int
+			result2 error
+		})
+	}
+	fake.removeDestroyingContainersReturnsOnCall[i] = struct {
+		result1 int
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeContainerRepository) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
@@ -137,6 +272,10 @@ func (fake *FakeContainerRepository) Invocations() map[string][][]interface{} {
 	defer fake.findOrphanedContainersMutex.RUnlock()
 	fake.findFailedContainersMutex.RLock()
 	defer fake.findFailedContainersMutex.RUnlock()
+	fake.findDestroyingContainersMutex.RLock()
+	defer fake.findDestroyingContainersMutex.RUnlock()
+	fake.removeDestroyingContainersMutex.RLock()
+	defer fake.removeDestroyingContainersMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

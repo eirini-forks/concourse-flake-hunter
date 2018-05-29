@@ -18,6 +18,7 @@ type WorkerFactory interface {
 	SaveWorker(atcWorker atc.Worker, ttl time.Duration) (Worker, error)
 	HeartbeatWorker(worker atc.Worker, ttl time.Duration) (Worker, error)
 	Workers() ([]Worker, error)
+	VisibleWorkers([]string) ([]Worker, error)
 }
 
 type workerFactory struct {
@@ -36,6 +37,7 @@ var workersQuery = psql.Select(`
 		w.addr,
 		w.state,
 		w.baggageclaim_url,
+		w.certs_path,
 		w.http_proxy_url,
 		w.https_proxy_url,
 		w.no_proxy,
@@ -53,6 +55,21 @@ var workersQuery = psql.Select(`
 
 func (f *workerFactory) GetWorker(name string) (Worker, bool, error) {
 	return getWorker(f.conn, workersQuery.Where(sq.Eq{"w.name": name}))
+}
+
+func (f *workerFactory) VisibleWorkers(teamNames []string) ([]Worker, error) {
+	workersQuery := workersQuery.
+		Where(sq.Or{
+			sq.Eq{"t.name": teamNames},
+			sq.Eq{"w.team_id": nil},
+		})
+
+	workers, err := getWorkers(f.conn, workersQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	return workers, nil
 }
 
 func (f *workerFactory) Workers() ([]Worker, error) {
@@ -100,10 +117,12 @@ func getWorkers(conn Conn, query sq.SelectBuilder) ([]Worker, error) {
 
 func scanWorker(worker *worker, row scannable) error {
 	var (
-		version       sql.NullString
-		addStr        sql.NullString
-		state         string
-		bcURLStr      sql.NullString
+		version  sql.NullString
+		addStr   sql.NullString
+		state    string
+		bcURLStr sql.NullString
+		//	reaperAddr    sql.NullString
+		certsPathStr  sql.NullString
 		httpProxyURL  sql.NullString
 		httpsProxyURL sql.NullString
 		noProxy       sql.NullString
@@ -122,6 +141,8 @@ func scanWorker(worker *worker, row scannable) error {
 		&addStr,
 		&state,
 		&bcURLStr,
+		//	&reaperAddr,
+		&certsPathStr,
 		&httpProxyURL,
 		&httpsProxyURL,
 		&noProxy,
@@ -148,6 +169,14 @@ func scanWorker(worker *worker, row scannable) error {
 
 	if bcURLStr.Valid {
 		worker.baggageclaimURL = &bcURLStr.String
+	}
+
+	// if reaperAddr.Valid {
+	// 	worker.reaperAddr = &reaperAddr.String
+	// }
+
+	if certsPathStr.Valid {
+		worker.certsPath = &certsPathStr.String
 	}
 
 	worker.state = WorkerState(state)
@@ -237,10 +266,19 @@ func (f *workerFactory) HeartbeatWorker(atcWorker atc.Worker, ttl time.Duration)
 		return nil, err
 	}
 
+	// reapSQL, _, err := sq.Case("state").
+	// 	When("'landed'::worker_state", "NULL").
+	// 	Else("'" + atcWorker.ReaperAddr + "'").
+	// 	ToSql()
+	// if err != nil {
+	// 	return nil, err
+	// }
+
 	_, err = psql.Update("workers").
 		Set("expires", sq.Expr(expires)).
 		Set("addr", sq.Expr("("+addrSQL+")")).
 		Set("baggageclaim_url", sq.Expr("("+bcSQL+")")).
+		//	Set("reaper_addr", sq.Expr("("+reapSQL+")")).
 		Set("active_containers", atcWorker.ActiveContainers).
 		Set("state", sq.Expr("("+cSQL+")")).
 		Where(sq.Eq{"name": atcWorker.Name}).
@@ -340,6 +378,8 @@ func saveWorker(tx Tx, atcWorker atc.Worker, teamID *int, ttl time.Duration, con
 					"tags",
 					"platform",
 					"baggageclaim_url",
+					// "reaper_addr",
+					"certs_path",
 					"http_proxy_url",
 					"https_proxy_url",
 					"no_proxy",
@@ -357,6 +397,8 @@ func saveWorker(tx Tx, atcWorker atc.Worker, teamID *int, ttl time.Duration, con
 					tags,
 					atcWorker.Platform,
 					atcWorker.BaggageclaimURL,
+					//			atcWorker.ReaperAddr,
+					atcWorker.CertsPath,
 					atcWorker.HTTPProxyURL,
 					atcWorker.HTTPSProxyURL,
 					atcWorker.NoProxy,
@@ -388,6 +430,8 @@ func saveWorker(tx Tx, atcWorker atc.Worker, teamID *int, ttl time.Duration, con
 			Set("tags", tags).
 			Set("platform", atcWorker.Platform).
 			Set("baggageclaim_url", atcWorker.BaggageclaimURL).
+			//		Set("reaper_addr", atcWorker.ReaperAddr).
+			Set("certs_path", atcWorker.CertsPath).
 			Set("http_proxy_url", atcWorker.HTTPProxyURL).
 			Set("https_proxy_url", atcWorker.HTTPSProxyURL).
 			Set("no_proxy", atcWorker.NoProxy).
@@ -411,11 +455,13 @@ func saveWorker(tx Tx, atcWorker atc.Worker, teamID *int, ttl time.Duration, con
 	}
 
 	savedWorker := &worker{
-		name:             atcWorker.Name,
-		version:          workerVersion,
-		state:            workerState,
-		gardenAddr:       &atcWorker.GardenAddr,
-		baggageclaimURL:  &atcWorker.BaggageclaimURL,
+		name:            atcWorker.Name,
+		version:         workerVersion,
+		state:           workerState,
+		gardenAddr:      &atcWorker.GardenAddr,
+		baggageclaimURL: &atcWorker.BaggageclaimURL,
+		//reaperAddr:       &atcWorker.ReaperAddr,
+		certsPath:        atcWorker.CertsPath,
 		httpProxyURL:     atcWorker.HTTPProxyURL,
 		httpsProxyURL:    atcWorker.HTTPSProxyURL,
 		noProxy:          atcWorker.NoProxy,
@@ -488,6 +534,17 @@ func saveWorker(tx Tx, atcWorker atc.Worker, teamID *int, ttl time.Duration, con
 		Exec()
 	if err != nil {
 		return nil, err
+	}
+
+	if atcWorker.CertsPath != nil {
+		_, err := WorkerResourceCerts{
+			WorkerName: atcWorker.Name,
+			CertsPath:  *atcWorker.CertsPath,
+		}.FindOrCreate(tx)
+
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return savedWorker, nil

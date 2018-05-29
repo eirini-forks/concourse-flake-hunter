@@ -73,7 +73,7 @@ func (c *client) BuildEvents(buildID string) ([]byte, error) {
 			if err == io.EOF {
 				return buf.Bytes(), nil
 			} else {
-				panic("failed to parse event")
+				panic(fmt.Sprintf("failed to parse event - %s", err.Error()))
 			}
 		}
 

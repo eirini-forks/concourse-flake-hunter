@@ -1,10 +1,10 @@
 package worker
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -60,9 +60,10 @@ type Worker interface {
 	FindVolumeForResourceCache(logger lager.Logger, resourceCache *db.UsedResourceCache) (Volume, bool, error)
 	FindVolumeForTaskCache(lager.Logger, int, int, string, string) (Volume, bool, error)
 
+	CertsVolume(lager.Logger) (volume Volume, found bool, err error)
+
 	GardenClient() garden.Client
 	BaggageclaimClient() baggageclaim.Client
-	EnsureCertsVolumeExists(logger lager.Logger) error
 }
 
 type gardenWorker struct {
@@ -87,6 +88,7 @@ type gardenWorker struct {
 func NewGardenWorker(
 	gardenClient garden.Client,
 	baggageclaimClient baggageclaim.Client,
+	// reaperClient reaper.ReaperClient,
 	containerProvider ContainerProvider,
 	volumeClient VolumeClient,
 	dbWorker db.Worker,
@@ -108,6 +110,7 @@ func NewGardenWorker(
 		name:             dbWorker.Name(),
 		startTime:        dbWorker.StartTime(),
 		version:          dbWorker.Version(),
+		// reaperClient:     reaperClient,
 	}
 }
 
@@ -154,28 +157,6 @@ func (worker *gardenWorker) IsVersionCompatible(logger lager.Logger, comparedVer
 	}
 }
 
-func (worker *gardenWorker) EnsureCertsVolumeExists(logger lager.Logger) error {
-	baggageclaimClient := worker.BaggageclaimClient()
-
-	_, found, err := baggageclaimClient.LookupVolume(logger, certsVolumeName)
-	if err != nil {
-		return err
-	}
-
-	if found {
-		return nil
-	}
-
-	_, err = baggageclaimClient.CreateVolume(logger, certsVolumeName, baggageclaim.VolumeSpec{
-		Strategy: baggageclaim.ImportStrategy{
-			Path:           "/etc/ssl/certs",
-			FollowSymlinks: true,
-		},
-	})
-
-	return err
-}
-
 func (worker *gardenWorker) FindResourceTypeByPath(path string) (atc.WorkerResourceType, bool) {
 	for _, rt := range worker.resourceTypes {
 		if path == rt.Image {
@@ -194,13 +175,17 @@ func (worker *gardenWorker) FindVolumeForTaskCache(logger lager.Logger, teamID i
 	return worker.volumeClient.FindVolumeForTaskCache(logger, teamID, jobID, stepName, path)
 }
 
+func (worker *gardenWorker) CertsVolume(logger lager.Logger) (Volume, bool, error) {
+	return worker.volumeClient.FindOrCreateVolumeForResourceCerts(logger.Session("find-or-create"))
+}
+
 func (worker *gardenWorker) LookupVolume(logger lager.Logger, handle string) (Volume, bool, error) {
 	return worker.volumeClient.LookupVolume(logger, handle)
 }
 
 func (worker *gardenWorker) FindOrCreateContainer(
+	ctx context.Context,
 	logger lager.Logger,
-	cancel <-chan os.Signal,
 	delegate ImageFetchingDelegate,
 	owner db.ContainerOwner,
 	metadata db.ContainerMetadata,
@@ -209,8 +194,8 @@ func (worker *gardenWorker) FindOrCreateContainer(
 ) (Container, error) {
 
 	return worker.containerProvider.FindOrCreateContainer(
+		ctx,
 		logger,
-		cancel,
 		owner,
 		delegate,
 		metadata,

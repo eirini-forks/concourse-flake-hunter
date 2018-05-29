@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"time"
 
 	"code.cloudfoundry.org/lager"
 
@@ -16,6 +17,9 @@ type VaultManager struct {
 	URL string `long:"url" description:"Vault server address used to access secrets."`
 
 	PathPrefix string `long:"path-prefix" default:"/concourse" description:"Path under which to namespace credential lookup."`
+
+	Cache    bool          `bool:"cache" default:"false" description:"Cache returned secrets for their lease duration in memory"`
+	MaxLease time.Duration `long:"max-lease" description:"If the cache is enabled, and this is set, override secrets lease duration with a maximum value"`
 
 	TLS struct {
 		CACert     string `long:"ca-cert"              description:"Path to a PEM-encoded CA cert file to use to verify the vault server SSL cert."`
@@ -32,8 +36,12 @@ type VaultManager struct {
 type AuthConfig struct {
 	ClientToken string `long:"client-token" description:"Client token for accessing secrets within the Vault server."`
 
-	Backend string           `long:"auth-backend" description:"Auth backend to use for logging in to Vault."`
-	Params  []template.VarKV `long:"auth-param"  description:"Paramter to pass when logging in via the backend. Can be specified multiple times." value-name:"NAME=VALUE"`
+	Backend       string        `long:"auth-backend"               description:"Auth backend to use for logging in to Vault."`
+	BackendMaxTTL time.Duration `long:"auth-backend-max-ttl"       description:"Time after which to force a re-login. If not set, the token will just be continuously renewed."`
+	RetryMax      time.Duration `long:"retry-max"     default:"5m" description:"The maximum time between retries when logging in or re-authing a secret."`
+	RetryInitial  time.Duration `long:"retry-initial" default:"1s" description:"The initial time between retries when logging in or re-authing a secret."`
+
+	Params []template.VarKV `long:"auth-param"  description:"Paramter to pass when logging in via the backend. Can be specified multiple times." value-name:"NAME=VALUE"`
 }
 
 func (manager VaultManager) IsConfigured() bool {
@@ -58,9 +66,7 @@ func (manager VaultManager) Validate() error {
 }
 
 func (manager VaultManager) NewVariablesFactory(logger lager.Logger) (creds.VariablesFactory, error) {
-	config := vaultapi.DefaultConfig()
-
-	err := config.ConfigureTLS(&vaultapi.TLSConfig{
+	tlsConfig := &vaultapi.TLSConfig{
 		CACert:        manager.TLS.CACert,
 		CAPath:        manager.TLS.CAPath,
 		TLSServerName: manager.TLS.ServerName,
@@ -68,20 +74,18 @@ func (manager VaultManager) NewVariablesFactory(logger lager.Logger) (creds.Vari
 
 		ClientCert: manager.TLS.ClientCert,
 		ClientKey:  manager.TLS.ClientKey,
-	})
+	}
+
+	c, err := NewAPIClient(logger, manager.URL, tlsConfig, manager.Auth)
 	if err != nil {
 		return nil, err
 	}
 
-	client, err := vaultapi.NewClient(config)
-	if err != nil {
-		return nil, err
+	ra := NewReAuther(c, manager.Auth.BackendMaxTTL, manager.Auth.RetryInitial, manager.Auth.RetryMax)
+	var sr SecretReader = c
+	if manager.Cache {
+		sr = NewCache(c, manager.MaxLease)
 	}
 
-	err = client.SetAddress(manager.URL)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewVaultFactory(logger, client, manager.Auth, manager.PathPrefix), nil
+	return NewVaultFactory(sr, ra.LoggedIn(), manager.PathPrefix), nil
 }

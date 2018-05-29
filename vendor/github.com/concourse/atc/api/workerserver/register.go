@@ -8,11 +8,9 @@ import (
 	"strconv"
 	"time"
 
-	"code.cloudfoundry.org/clock"
 	"code.cloudfoundry.org/lager"
 	"github.com/concourse/atc"
-	"github.com/concourse/atc/api/auth"
-	"github.com/concourse/atc/db"
+	"github.com/concourse/atc/api/accessor"
 	"github.com/concourse/atc/metric"
 )
 
@@ -26,7 +24,8 @@ func (s *Server) RegisterWorker(w http.ResponseWriter, r *http.Request) {
 	logger := s.logger.Session("register-worker")
 	var registration atc.Worker
 
-	if !auth.IsSystem(r) {
+	acc := accessor.GetAccessor(r)
+	if !acc.IsSystem() {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -60,6 +59,10 @@ func (s *Server) RegisterWorker(w http.ResponseWriter, r *http.Request) {
 		registration.Name = registration.GardenAddr
 	}
 
+	if registration.CertsPath != nil && *registration.CertsPath == "" {
+		registration.CertsPath = nil
+	}
+
 	metric.WorkerContainers{
 		WorkerName: registration.Name,
 		Containers: registration.ActiveContainers,
@@ -69,8 +72,6 @@ func (s *Server) RegisterWorker(w http.ResponseWriter, r *http.Request) {
 		WorkerName: registration.Name,
 		Volumes:    registration.ActiveVolumes,
 	}.Emit(s.logger)
-
-	var savedWorker db.Worker
 
 	if registration.Team != "" {
 		team, found, err := s.teamFactory.FindTeam(registration.Team)
@@ -86,27 +87,19 @@ func (s *Server) RegisterWorker(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		savedWorker, err = team.SaveWorker(registration, ttl)
+		_, err = team.SaveWorker(registration, ttl)
 		if err != nil {
 			logger.Error("failed-to-save-worker", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 	} else {
-		savedWorker, err = s.dbWorkerFactory.SaveWorker(registration, ttl)
+		_, err = s.dbWorkerFactory.SaveWorker(registration, ttl)
 		if err != nil {
 			logger.Error("failed-to-save-worker", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-	}
-
-	gardenWorker := s.workerProvider.NewGardenWorker(logger, clock.NewClock(), savedWorker)
-	err = gardenWorker.EnsureCertsVolumeExists(logger)
-	if err != nil {
-		logger.Error("failed-to-ensure-certs-volume", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
 	}
 
 	w.WriteHeader(http.StatusOK)
