@@ -37,7 +37,7 @@ var _ = Describe("Factory Put", func() {
 				{
 					ResourceType: atc.ResourceType{
 						Name:   "some-custom-resource",
-						Type:   "docker-image",
+						Type:   "registry-image",
 						Source: atc.Source{"some": "custom-source"},
 					},
 					Version: atc.Version{"some": "version"},
@@ -215,7 +215,7 @@ var _ = Describe("Factory Put", func() {
 
 				expected := expectedPlanFactory.NewPlan(atc.OnSuccessPlan{
 					Step: expectedPlanFactory.NewPlan(atc.TaskPlan{
-						Name: "some-task",
+						Name:                   "some-task",
 						VersionedResourceTypes: resourceTypes,
 					}),
 
@@ -271,7 +271,7 @@ var _ = Describe("Factory Put", func() {
 
 				expected := expectedPlanFactory.NewPlan(atc.AggregatePlan{
 					expectedPlanFactory.NewPlan(atc.TaskPlan{
-						Name: "some thing",
+						Name:                   "some thing",
 						VersionedResourceTypes: resourceTypes,
 					}),
 					expectedPlanFactory.NewPlan(atc.OnSuccessPlan{
@@ -323,7 +323,7 @@ var _ = Describe("Factory Put", func() {
 
 				expected := expectedPlanFactory.NewPlan(atc.DoPlan{
 					expectedPlanFactory.NewPlan(atc.TaskPlan{
-						Name: "some-task",
+						Name:                   "some-task",
 						VersionedResourceTypes: resourceTypes,
 					}),
 					expectedPlanFactory.NewPlan(atc.OnSuccessPlan{
@@ -376,7 +376,7 @@ var _ = Describe("Factory Put", func() {
 
 				expectedPlan := expectedPlanFactory.NewPlan(atc.DoPlan{
 					expectedPlanFactory.NewPlan(atc.TaskPlan{
-						Name: "those who resist our will",
+						Name:                   "those who resist our will",
 						VersionedResourceTypes: resourceTypes,
 					}),
 					expectedPlanFactory.NewPlan(atc.OnSuccessPlan{
@@ -393,7 +393,7 @@ var _ = Describe("Factory Put", func() {
 						}),
 					}),
 					expectedPlanFactory.NewPlan(atc.TaskPlan{
-						Name: "some-other-task",
+						Name:                   "some-other-task",
 						VersionedResourceTypes: resourceTypes,
 					}),
 				})

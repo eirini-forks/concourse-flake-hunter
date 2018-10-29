@@ -28,6 +28,9 @@ const (
 	JobBadge       = "JobBadge"
 	MainJobBadge   = "MainJobBadge"
 
+	ClearTaskCache = "ClearTaskCache"
+
+	ListAllResources     = "ListAllResources"
 	ListResources        = "ListResources"
 	ListResourceTypes    = "ListResourceTypes"
 	GetResource          = "GetResource"
@@ -35,6 +38,7 @@ const (
 	UnpauseResource      = "UnpauseResource"
 	CheckResource        = "CheckResource"
 	CheckResourceWebHook = "CheckResourceWebHook"
+	CheckResourceType    = "CheckResourceType"
 
 	ListResourceVersions          = "ListResourceVersions"
 	GetResourceVersion            = "GetResourceVersion"
@@ -69,8 +73,9 @@ const (
 	SetLogLevel = "SetLogLevel"
 	GetLogLevel = "GetLogLevel"
 
-	DownloadCLI = "DownloadCLI"
-	GetInfo     = "Info"
+	DownloadCLI  = "DownloadCLI"
+	GetInfo      = "Info"
+	GetInfoCreds = "InfoCreds"
 
 	ListContainers           = "ListContainers"
 	GetContainer             = "GetContainer"
@@ -82,10 +87,6 @@ const (
 	ListDestroyingVolumes = "ListDestroyingVolumes"
 	ReportWorkerVolumes   = "ReportWorkerVolumes"
 
-	LegacyListAuthMethods = "LegacyListAuthMethods"
-	LegacyGetAuthToken    = "LegacyGetAuthToken"
-	LegacyGetUser         = "LegacyGetUser"
-
 	ListTeams      = "ListTeams"
 	SetTeam        = "SetTeam"
 	RenameTeam     = "RenameTeam"
@@ -94,6 +95,11 @@ const (
 
 	SendInputToBuildPlan    = "SendInputToBuildPlan"
 	ReadOutputFromBuildPlan = "ReadOutputFromBuildPlan"
+)
+
+const (
+	ClearTaskCacheQueryPath = "cache_path"
+	SaveConfigCheckCreds    = "check_creds"
 )
 
 var Routes = rata.Routes([]rata.Route{
@@ -124,6 +130,8 @@ var Routes = rata.Routes([]rata.Route{
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/jobs/:job_name/badge", Method: "GET", Name: JobBadge},
 	{Path: "/api/v1/pipelines/:pipeline_name/jobs/:job_name/badge", Method: "GET", Name: MainJobBadge},
 
+	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/jobs/:job_name/tasks/:step_name/cache", Method: "DELETE", Name: ClearTaskCache},
+
 	{Path: "/api/v1/pipelines", Method: "GET", Name: ListAllPipelines},
 	{Path: "/api/v1/teams/:team_name/pipelines", Method: "GET", Name: ListPipelines},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name", Method: "GET", Name: GetPipeline},
@@ -139,6 +147,7 @@ var Routes = rata.Routes([]rata.Route{
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/builds", Method: "POST", Name: CreatePipelineBuild},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/badge", Method: "GET", Name: PipelineBadge},
 
+	{Path: "/api/v1/resources", Method: "GET", Name: ListAllResources},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources", Method: "GET", Name: ListResources},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resource-types", Method: "GET", Name: ListResourceTypes},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name", Method: "GET", Name: GetResource},
@@ -146,6 +155,7 @@ var Routes = rata.Routes([]rata.Route{
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/unpause", Method: "PUT", Name: UnpauseResource},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/check", Method: "POST", Name: CheckResource},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/check/webhook", Method: "POST", Name: CheckResourceWebHook},
+	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resource-types/:resource_name/check", Method: "POST", Name: CheckResourceType},
 
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/versions", Method: "GET", Name: ListResourceVersions},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/versions/:resource_version_id", Method: "GET", Name: GetResourceVersion},
@@ -168,6 +178,7 @@ var Routes = rata.Routes([]rata.Route{
 
 	{Path: "/api/v1/cli", Method: "GET", Name: DownloadCLI},
 	{Path: "/api/v1/info", Method: "GET", Name: GetInfo},
+	{Path: "/api/v1/info/creds", Method: "GET", Name: GetInfoCreds},
 
 	{Path: "/api/v1/containers/destroying", Method: "GET", Name: ListDestroyingContainers},
 	{Path: "/api/v1/containers/report", Method: "PUT", Name: ReportWorkerContainers},
@@ -178,10 +189,6 @@ var Routes = rata.Routes([]rata.Route{
 	{Path: "/api/v1/teams/:team_name/volumes", Method: "GET", Name: ListVolumes},
 	{Path: "/api/v1/volumes/destroying", Method: "GET", Name: ListDestroyingVolumes},
 	{Path: "/api/v1/volumes/report", Method: "PUT", Name: ReportWorkerVolumes},
-
-	{Path: "/api/v1/teams/:team_name/auth/methods", Method: "GET", Name: LegacyListAuthMethods},
-	{Path: "/api/v1/teams/:team_name/auth/token", Method: "GET", Name: LegacyGetAuthToken},
-	{Path: "/api/v1/user", Method: "GET", Name: LegacyGetUser},
 
 	{Path: "/api/v1/teams", Method: "GET", Name: ListTeams},
 	{Path: "/api/v1/teams/:team_name", Method: "PUT", Name: SetTeam},

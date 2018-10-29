@@ -106,19 +106,28 @@ func (runner *Runner) MigrateToVersion(version int) {
 	Expect(err).NotTo(HaveOccurred())
 }
 
-func (runner *Runner) OpenDBAtVersion(version int) *sql.DB {
+func (runner *Runner) TryOpenDBAtVersion(version int) (*sql.DB, error) {
 	dbConn, err := migration.NewOpenHelper(
 		"postgres",
 		runner.DataSourceName(),
 		nil,
 		encryption.NewNoEncryption(),
 	).OpenAtVersion(version)
-	Expect(err).NotTo(HaveOccurred())
+
+	if err != nil {
+		return nil, err
+	}
 
 	// only allow one connection so that we can detect any code paths that
 	// require more than one, which will deadlock if it's at the limit
 	dbConn.SetMaxOpenConns(1)
 
+	return dbConn, nil
+}
+
+func (runner *Runner) OpenDBAtVersion(version int) *sql.DB {
+	dbConn, err := runner.TryOpenDBAtVersion(version)
+	Expect(err).NotTo(HaveOccurred())
 	return dbConn
 }
 
@@ -218,7 +227,7 @@ func (runner *Runner) Truncate() {
 			DECLARE
 					statements CURSOR FOR
 							SELECT tablename FROM pg_tables
-							WHERE schemaname = 'public' AND tablename != 'schema_migrations';
+							WHERE schemaname = 'public' AND tablename != 'migrations_history';
 			BEGIN
 					FOR stmt IN statements LOOP
 							EXECUTE 'TRUNCATE TABLE ' || quote_ident(stmt.tablename) || ' RESTART IDENTITY CASCADE;';

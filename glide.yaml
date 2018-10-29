@@ -1,11 +1,11 @@
 package: github.com/masters-of-cats/concourse-flake-hunter
 import:
 - package: github.com/concourse/atc
-  version: 41728fc3047b8944cf5bbfd99afdb4d6088cc245
+  version: 071f8bcda9cee4d597459e1302a57c695561d85d
   subpackages:
   - event
 - package: github.com/concourse/go-concourse
-  version: 0efc7ba68468713fcf28a943248883ba43d5042e
+  version: 79a832c54c62c957d666520937ee4a62b1af9efc
   subpackages:
   - concourse
 - package: github.com/olekukonko/tablewriter

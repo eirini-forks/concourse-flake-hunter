@@ -16,7 +16,6 @@ import (
 	"github.com/concourse/atc"
 	"github.com/concourse/atc/creds"
 	"github.com/concourse/atc/db"
-	"github.com/concourse/atc/db/dbfakes"
 	"github.com/concourse/atc/exec"
 	"github.com/concourse/atc/exec/execfakes"
 	"github.com/concourse/atc/worker"
@@ -31,8 +30,7 @@ var _ = Describe("TaskStep", func() {
 		ctx    context.Context
 		cancel func()
 
-		fakeWorkerClient           *workerfakes.FakeClient
-		fakeDBResourceCacheFactory *dbfakes.FakeResourceCacheFactory
+		fakeWorkerClient *workerfakes.FakeClient
 
 		stdoutBuf *gbytes.Buffer
 		stderrBuf *gbytes.Buffer
@@ -66,7 +64,6 @@ var _ = Describe("TaskStep", func() {
 		ctx, cancel = context.WithCancel(context.Background())
 
 		fakeWorkerClient = new(workerfakes.FakeClient)
-		fakeDBResourceCacheFactory = new(dbfakes.FakeResourceCacheFactory)
 
 		stdoutBuf = gbytes.NewBuffer()
 		stderrBuf = gbytes.NewBuffer()
@@ -135,6 +132,7 @@ var _ = Describe("TaskStep", func() {
 			containerMetadata,
 			resourceTypes,
 			variables,
+			atc.ContainerLimits{},
 		)
 
 		stepErr = taskStep.Run(ctx, state)
@@ -144,6 +142,8 @@ var _ = Describe("TaskStep", func() {
 		var fetchedConfig atc.TaskConfig
 
 		BeforeEach(func() {
+			cpu := uint64(1024)
+			memory := uint64(1024)
 			fetchedConfig = atc.TaskConfig{
 				Platform: "some-platform",
 				ImageResource: &atc.ImageResource{
@@ -151,6 +151,10 @@ var _ = Describe("TaskStep", func() {
 					Source:  atc.Source{"some": "((source-param))"},
 					Params:  &atc.Params{"some": "params"},
 					Version: &atc.Version{"some": "version"},
+				},
+				Limits: atc.ContainerLimits{
+					CPU:    &cpu,
+					Memory: &memory,
 				},
 				Params: map[string]string{
 					"SECURE": "((task-param))",
@@ -200,6 +204,8 @@ var _ = Describe("TaskStep", func() {
 
 				Expect(delegate).To(Equal(fakeDelegate))
 
+				cpu := uint64(1024)
+				memory := uint64(1024)
 				Expect(spec).To(Equal(worker.ContainerSpec{
 					Platform: "some-platform",
 					Tags:     []string{"step", "tags"},
@@ -212,6 +218,10 @@ var _ = Describe("TaskStep", func() {
 							Version: &atc.Version{"some": "version"},
 						},
 						Privileged: false,
+					},
+					Limits: worker.ContainerLimits{
+						CPU:    &cpu,
+						Memory: &memory,
 					},
 					Dir:     "some-artifact-root",
 					Env:     []string{"SECURE=super-secret-param"},
@@ -377,28 +387,6 @@ var _ = Describe("TaskStep", func() {
 
 					fakeProcess = new(gardenfakes.FakeProcess)
 					fakeContainer.AttachReturns(fakeProcess, nil)
-				})
-
-				Context("when the container has task process name as its property", func() {
-					BeforeEach(func() {
-						fakeContainer.PropertyStub = func(propertyName string) (string, error) {
-							if propertyName == "concourse:exit-status" {
-								return "", errors.New("no exit status property")
-							}
-							if propertyName == "concourse:task-process" {
-								return "some-saved-task-process", nil
-							}
-
-							panic("unknown property")
-						}
-					})
-
-					It("attaches to saved process name", func() {
-						Expect(fakeContainer.AttachCallCount()).To(Equal(1))
-
-						pid, _ := fakeContainer.AttachArgsForCall(0)
-						Expect(pid).To(Equal("some-saved-task-process"))
-					})
 				})
 
 				Context("when the container does not have task process name as its property", func() {
@@ -650,17 +638,11 @@ var _ = Describe("TaskStep", func() {
 
 				Context("when the configuration specifies paths for caches", func() {
 					var (
-						inputSource      *workerfakes.FakeArtifactSource
-						otherInputSource *workerfakes.FakeArtifactSource
-
 						fakeVolume1 *workerfakes.FakeVolume
 						fakeVolume2 *workerfakes.FakeVolume
 					)
 
 					BeforeEach(func() {
-						inputSource = new(workerfakes.FakeArtifactSource)
-						otherInputSource = new(workerfakes.FakeArtifactSource)
-
 						configSource.FetchConfigReturns(atc.TaskConfig{
 							Platform:  "some-platform",
 							RootfsURI: "some-image",

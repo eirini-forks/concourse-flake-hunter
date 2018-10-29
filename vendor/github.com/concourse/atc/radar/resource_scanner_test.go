@@ -1,6 +1,7 @@
 package radar_test
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -42,8 +43,9 @@ var _ = Describe("ResourceScanner", func() {
 		scanner                 Scanner
 		fakeResourceTypeScanner *radarfakes.FakeScanner
 
-		resourceConfig atc.ResourceConfig
-		fakeDBResource *dbfakes.FakeResource
+		resourceConfig     atc.ResourceConfig
+		fakeDBResource     *dbfakes.FakeResource
+		fakeResourceConfig *dbfakes.FakeResourceConfig
 
 		fakeLock *lockfakes.FakeLock
 		teamID   = 123
@@ -53,6 +55,7 @@ var _ = Describe("ResourceScanner", func() {
 		epoch = time.Unix(123, 456).UTC()
 		fakeLock = &lockfakes.FakeLock{}
 		interval = 1 * time.Minute
+		GlobalResourceCheckTimeout = 1 * time.Hour
 		variables = template.StaticVariables{
 			"source-params": "some-secret-sauce",
 		}
@@ -67,7 +70,7 @@ var _ = Describe("ResourceScanner", func() {
 		versionedResourceType = atc.VersionedResourceType{
 			ResourceType: atc.ResourceType{
 				Name:   "some-custom-resource",
-				Type:   "docker-image",
+				Type:   "registry-image",
 				Source: atc.Source{"custom": "((source-params))"},
 			},
 			Version: atc.Version{"custom": "version"},
@@ -79,10 +82,12 @@ var _ = Describe("ResourceScanner", func() {
 		fakeResourceType = new(dbfakes.FakeResourceType)
 		fakeDBResource = new(dbfakes.FakeResource)
 		fakeDBPipeline = new(dbfakes.FakePipeline)
+		fakeResourceConfig = new(dbfakes.FakeResourceConfig)
 
 		fakeResourceConfigCheckSessionFactory.FindOrCreateResourceConfigCheckSessionReturns(fakeResourceConfigCheckSession, nil)
 
-		fakeResourceConfigCheckSession.ResourceConfigReturns(&db.UsedResourceConfig{ID: 123})
+		fakeResourceConfig.IDReturns(123)
+		fakeResourceConfigCheckSession.ResourceConfigReturns(fakeResourceConfig)
 
 		fakeDBPipeline.IDReturns(42)
 		fakeDBPipeline.NameReturns("some-pipeline")
@@ -94,7 +99,7 @@ var _ = Describe("ResourceScanner", func() {
 
 		fakeResourceType.IDReturns(1)
 		fakeResourceType.NameReturns("some-custom-resource")
-		fakeResourceType.TypeReturns("docker-image")
+		fakeResourceType.TypeReturns("registry-image")
 		fakeResourceType.SourceReturns(atc.Source{"custom": "((source-params))"})
 		fakeResourceType.VersionReturns(atc.Version{"custom": "version"})
 
@@ -296,7 +301,7 @@ var _ = Describe("ResourceScanner", func() {
 
 			Context("when there is no current version", func() {
 				It("checks from nil", func() {
-					_, version := fakeResource.CheckArgsForCall(0)
+					_, _, version := fakeResource.CheckArgsForCall(0)
 					Expect(version).To(BeNil())
 				})
 			})
@@ -315,7 +320,7 @@ var _ = Describe("ResourceScanner", func() {
 				})
 
 				It("checks from it", func() {
-					_, version := fakeResource.CheckArgsForCall(0)
+					_, _, version := fakeResource.CheckArgsForCall(0)
 					Expect(version).To(Equal(atc.Version{"version": "1"}))
 				})
 			})
@@ -339,7 +344,7 @@ var _ = Describe("ResourceScanner", func() {
 					}
 
 					check := 0
-					fakeResource.CheckStub = func(source atc.Source, from atc.Version) ([]atc.Version, error) {
+					fakeResource.CheckStub = func(ctx context.Context, source atc.Source, from atc.Version) ([]atc.Version, error) {
 						defer GinkgoRecover()
 
 						Expect(source).To(Equal(resourceConfig.Source))
@@ -513,7 +518,7 @@ var _ = Describe("ResourceScanner", func() {
 
 					fakeGitResourceType.IDReturns(5)
 					fakeGitResourceType.NameReturns("git")
-					fakeGitResourceType.TypeReturns("docker-image")
+					fakeGitResourceType.TypeReturns("registry-image")
 					fakeGitResourceType.SourceReturns(atc.Source{"custom": "((source-params))"})
 					fakeGitResourceType.VersionReturns(nil)
 
@@ -670,6 +675,36 @@ var _ = Describe("ResourceScanner", func() {
 				})
 			})
 
+			Context("when the resource config has a specified timeout", func() {
+				BeforeEach(func() {
+					fakeDBResource.CheckTimeoutReturns("10s")
+					fakeDBPipeline.ResourceReturns(fakeDBResource, true, nil)
+				})
+
+				It("times out after the specified timeout", func() {
+					now := time.Now()
+					ctx, _, _ := fakeResource.CheckArgsForCall(0)
+					deadline, _ := ctx.Deadline()
+					Expect(deadline).Should(BeTemporally("~", now.Add(10*time.Second), time.Second))
+				})
+
+				Context("when the timeout cannot be parsed", func() {
+					BeforeEach(func() {
+						fakeDBResource.CheckTimeoutReturns("bad-value")
+						fakeDBPipeline.ResourceReturns(fakeDBResource, true, nil)
+					})
+
+					It("fails to parse the timeout and returns the error", func() {
+						Expect(scanErr).To(HaveOccurred())
+						Expect(fakeDBPipeline.SetResourceCheckErrorCallCount()).To(Equal(1))
+
+						savedResource, resourceErr := fakeDBPipeline.SetResourceCheckErrorArgsForCall(0)
+						Expect(savedResource.Name()).To(Equal("some-resource"))
+						Expect(resourceErr).To(MatchError("time: invalid duration bad-value"))
+					})
+				})
+			})
+
 			Context("when the lock is not immediately available", func() {
 				BeforeEach(func() {
 					results := make(chan bool, 4)
@@ -679,7 +714,7 @@ var _ = Describe("ResourceScanner", func() {
 					results <- true
 					close(results)
 
-					fakeDBPipeline.AcquireResourceCheckingLockWithIntervalCheckStub = func(logger lager.Logger, resourceName string, resourceConfig *db.UsedResourceConfig, interval time.Duration, immediate bool) (lock.Lock, bool, error) {
+					fakeDBPipeline.AcquireResourceCheckingLockWithIntervalCheckStub = func(logger lager.Logger, resourceName string, resourceConfig db.ResourceConfig, interval time.Duration, immediate bool) (lock.Lock, bool, error) {
 						if <-results {
 							return fakeLock, true, nil
 						} else {
@@ -729,7 +764,7 @@ var _ = Describe("ResourceScanner", func() {
 				})
 
 				It("checks from nil", func() {
-					_, version := fakeResource.CheckArgsForCall(0)
+					_, _, version := fakeResource.CheckArgsForCall(0)
 					Expect(version).To(BeNil())
 				})
 			})
@@ -764,7 +799,7 @@ var _ = Describe("ResourceScanner", func() {
 				})
 
 				It("checks from it", func() {
-					_, version := fakeResource.CheckArgsForCall(0)
+					_, _, version := fakeResource.CheckArgsForCall(0)
 					Expect(version).To(Equal(atc.Version{"version": "1"}))
 				})
 
@@ -798,7 +833,7 @@ var _ = Describe("ResourceScanner", func() {
 					}
 
 					check := 0
-					fakeResource.CheckStub = func(source atc.Source, from atc.Version) ([]atc.Version, error) {
+					fakeResource.CheckStub = func(ctx context.Context, source atc.Source, from atc.Version) ([]atc.Version, error) {
 						defer GinkgoRecover()
 
 						Expect(source).To(Equal(resourceConfig.Source))
@@ -896,7 +931,7 @@ var _ = Describe("ResourceScanner", func() {
 
 			Context("when fromVersion is nil", func() {
 				It("checks from nil", func() {
-					_, version := fakeResource.CheckArgsForCall(0)
+					_, _, version := fakeResource.CheckArgsForCall(0)
 					Expect(version).To(BeNil())
 				})
 			})
@@ -909,7 +944,7 @@ var _ = Describe("ResourceScanner", func() {
 				})
 
 				It("checks from it", func() {
-					_, version := fakeResource.CheckArgsForCall(0)
+					_, _, version := fakeResource.CheckArgsForCall(0)
 					Expect(version).To(Equal(atc.Version{"version": "1"}))
 				})
 			})

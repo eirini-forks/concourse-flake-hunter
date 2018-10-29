@@ -1,24 +1,30 @@
-hash: 352de2e12cb99cff5d6556282eb23f939464bd4ab5788d48fb6b61892bb6ccf9
-updated: 2018-05-29T16:22:59.447096+01:00
+hash: dbb024122e3941910351bb39f78857e448b6be8f90ea6fed0c20153cb4aca274
+updated: 2018-10-29T15:24:23.28621+02:00
 imports:
-- name: code.cloudfoundry.org/lager
-  version: 0bfa98e49e7a976af91e918d47978f07c00b081f
 - name: github.com/bmizerany/pat
   version: 6226ea591a40176dd3ff9cd8eff81ed6ca721a00
 - name: github.com/concourse/atc
-  version: 41728fc3047b8944cf5bbfd99afdb4d6088cc245
+  version: 071f8bcda9cee4d597459e1302a57c695561d85d
   subpackages:
   - event
+- name: github.com/concourse/fly
+  version: 79616b2348f39c74b6e3290c585a24a0faac3e3b
+  subpackages:
+  - rc
+  - ui
+  - version
 - name: github.com/concourse/go-concourse
-  version: 0efc7ba68468713fcf28a943248883ba43d5042e
+  version: 79a832c54c62c957d666520937ee4a62b1af9efc
   subpackages:
   - concourse
   - concourse/eventstream
   - concourse/internal
-- name: github.com/concourse/skymarshal
-  version: 757b37d68b2b91a3550784ada60ffbe967bb22d4
+- name: github.com/cppforlife/go-semi-semantic
+  version: 576b6af77ae4f3ccef356902fb3b9a9ae22e0b11
   subpackages:
-  - provider
+  - version
+- name: github.com/fatih/color
+  version: 3f9d52f7176a6927daacff70a3e8d1dc2025c53e
 - name: github.com/golang/protobuf
   version: c65a0412e71e8b9b3bfd22925720d23c0f054237
   subpackages:
@@ -27,6 +33,10 @@ imports:
   version: e0fc4eed33051d6424c608a3db2f57a65217a185
 - name: github.com/jessevdk/go-flags
   version: f88afde2fa19a30cf50ba4b05b3d13bc6bae3079
+- name: github.com/mattn/go-colorable
+  version: efa589957cd060542a26d2dd7832fd6a6c6c3ade
+- name: github.com/mattn/go-isatty
+  version: 3fb116b820352b7f0c281308a4d6250c22d94e27
 - name: github.com/mitchellh/mapstructure
   version: b4575eea38cca1123ec2dc90c26529b5c5acfcff
 - name: github.com/olekukonko/tablewriter
@@ -50,6 +60,10 @@ imports:
   version: b28fcf2b08a19742b43084fb40ab78ac6c3d8067
   subpackages:
   - internal
+- name: golang.org/x/sys
+  version: 95b1ffbd15a57cc5abb3f04402b9e8ec0016a52c
+  subpackages:
+  - unix
 - name: google.golang.org/appengine
   version: 5bee14b453b4c71be47ec1781b0fa61c2ea182db
   subpackages:

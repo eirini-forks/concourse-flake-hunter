@@ -26,7 +26,7 @@ var _ = Describe("Factory Timeout Step", func() {
 			{
 				ResourceType: atc.ResourceType{
 					Name:   "some-custom-resource",
-					Type:   "docker-image",
+					Type:   "registry-image",
 					Source: atc.Source{"some": "custom-source"},
 				},
 				Version: atc.Version{"some": "version"},
@@ -49,7 +49,7 @@ var _ = Describe("Factory Timeout Step", func() {
 			expected := expectedPlanFactory.NewPlan(atc.TimeoutPlan{
 				Duration: "10s",
 				Step: expectedPlanFactory.NewPlan(atc.TaskPlan{
-					Name: "first task",
+					Name:                   "first task",
 					VersionedResourceTypes: resourceTypes,
 				}),
 			})

@@ -21,9 +21,10 @@ var _ = Describe("Resource", func() {
 			atc.Config{
 				Resources: atc.ResourceConfigs{
 					{
-						Name:   "some-resource",
-						Type:   "docker-image",
-						Source: atc.Source{"some": "repository"},
+						Name:    "some-resource",
+						Type:    "registry-image",
+						Source:  atc.Source{"some": "repository"},
+						Version: atc.Version{"ref": "abcdef"},
 					},
 					{
 						Name:   "some-other-resource",
@@ -34,6 +35,13 @@ var _ = Describe("Resource", func() {
 						Name:   "some-secret-resource",
 						Type:   "git",
 						Source: atc.Source{"some": "((secret-repository))"},
+					},
+					{
+						Name:         "some-resource-custom-check",
+						Type:         "git",
+						Source:       atc.Source{"some": "some-repository"},
+						CheckEvery:   "10ms",
+						CheckTimeout: "1m",
 					},
 				},
 			},
@@ -54,7 +62,7 @@ var _ = Describe("Resource", func() {
 		})
 
 		It("returns the resources", func() {
-			Expect(resources).To(HaveLen(3))
+			Expect(resources).To(HaveLen(4))
 
 			ids := map[int]struct{}{}
 
@@ -63,14 +71,20 @@ var _ = Describe("Resource", func() {
 
 				switch r.Name() {
 				case "some-resource":
-					Expect(r.Type()).To(Equal("docker-image"))
+					Expect(r.Type()).To(Equal("registry-image"))
 					Expect(r.Source()).To(Equal(atc.Source{"some": "repository"}))
+					Expect(r.PinnedVersion()).To(Equal(atc.Version{"ref": "abcdef"}))
 				case "some-other-resource":
 					Expect(r.Type()).To(Equal("git"))
 					Expect(r.Source()).To(Equal(atc.Source{"some": "other-repository"}))
 				case "some-secret-resource":
 					Expect(r.Type()).To(Equal("git"))
 					Expect(r.Source()).To(Equal(atc.Source{"some": "((secret-repository))"}))
+				case "some-resource-custom-check":
+					Expect(r.Type()).To(Equal("git"))
+					Expect(r.Source()).To(Equal(atc.Source{"some": "some-repository"}))
+					Expect(r.CheckEvery()).To(Equal("10ms"))
+					Expect(r.CheckTimeout()).To(Equal("1m"))
 				}
 			}
 		})
@@ -92,7 +106,7 @@ var _ = Describe("Resource", func() {
 			It("returns the resource", func() {
 				Expect(found).To(BeTrue())
 				Expect(resource.Name()).To(Equal("some-resource"))
-				Expect(resource.Type()).To(Equal("docker-image"))
+				Expect(resource.Type()).To(Equal("registry-image"))
 				Expect(resource.Source()).To(Equal(atc.Source{"some": "repository"}))
 			})
 		})

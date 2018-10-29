@@ -12,7 +12,6 @@ import (
 	"github.com/concourse/atc/creds"
 	"github.com/concourse/atc/db"
 	"github.com/concourse/atc/worker"
-	"github.com/concourse/baggageclaim"
 	"github.com/cppforlife/go-semi-semantic/version"
 )
 
@@ -188,6 +187,15 @@ type FakeWorker struct {
 	isOwnedByTeamReturnsOnCall map[int]struct {
 		result1 bool
 	}
+	EphemeralStub        func() bool
+	ephemeralMutex       sync.RWMutex
+	ephemeralArgsForCall []struct{}
+	ephemeralReturns     struct {
+		result1 bool
+	}
+	ephemeralReturnsOnCall map[int]struct {
+		result1 bool
+	}
 	IsVersionCompatibleStub        func(lager.Logger, *version.Version) bool
 	isVersionCompatibleMutex       sync.RWMutex
 	isVersionCompatibleArgsForCall []struct {
@@ -200,11 +208,11 @@ type FakeWorker struct {
 	isVersionCompatibleReturnsOnCall map[int]struct {
 		result1 bool
 	}
-	FindVolumeForResourceCacheStub        func(logger lager.Logger, resourceCache *db.UsedResourceCache) (worker.Volume, bool, error)
+	FindVolumeForResourceCacheStub        func(logger lager.Logger, resourceCache db.UsedResourceCache) (worker.Volume, bool, error)
 	findVolumeForResourceCacheMutex       sync.RWMutex
 	findVolumeForResourceCacheArgsForCall []struct {
 		logger        lager.Logger
-		resourceCache *db.UsedResourceCache
+		resourceCache db.UsedResourceCache
 	}
 	findVolumeForResourceCacheReturns struct {
 		result1 worker.Volume
@@ -258,15 +266,6 @@ type FakeWorker struct {
 	}
 	gardenClientReturnsOnCall map[int]struct {
 		result1 garden.Client
-	}
-	BaggageclaimClientStub        func() baggageclaim.Client
-	baggageclaimClientMutex       sync.RWMutex
-	baggageclaimClientArgsForCall []struct{}
-	baggageclaimClientReturns     struct {
-		result1 baggageclaim.Client
-	}
-	baggageclaimClientReturnsOnCall map[int]struct {
-		result1 baggageclaim.Client
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
@@ -928,6 +927,46 @@ func (fake *FakeWorker) IsOwnedByTeamReturnsOnCall(i int, result1 bool) {
 	}{result1}
 }
 
+func (fake *FakeWorker) Ephemeral() bool {
+	fake.ephemeralMutex.Lock()
+	ret, specificReturn := fake.ephemeralReturnsOnCall[len(fake.ephemeralArgsForCall)]
+	fake.ephemeralArgsForCall = append(fake.ephemeralArgsForCall, struct{}{})
+	fake.recordInvocation("Ephemeral", []interface{}{})
+	fake.ephemeralMutex.Unlock()
+	if fake.EphemeralStub != nil {
+		return fake.EphemeralStub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fake.ephemeralReturns.result1
+}
+
+func (fake *FakeWorker) EphemeralCallCount() int {
+	fake.ephemeralMutex.RLock()
+	defer fake.ephemeralMutex.RUnlock()
+	return len(fake.ephemeralArgsForCall)
+}
+
+func (fake *FakeWorker) EphemeralReturns(result1 bool) {
+	fake.EphemeralStub = nil
+	fake.ephemeralReturns = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeWorker) EphemeralReturnsOnCall(i int, result1 bool) {
+	fake.EphemeralStub = nil
+	if fake.ephemeralReturnsOnCall == nil {
+		fake.ephemeralReturnsOnCall = make(map[int]struct {
+			result1 bool
+		})
+	}
+	fake.ephemeralReturnsOnCall[i] = struct {
+		result1 bool
+	}{result1}
+}
+
 func (fake *FakeWorker) IsVersionCompatible(arg1 lager.Logger, arg2 *version.Version) bool {
 	fake.isVersionCompatibleMutex.Lock()
 	ret, specificReturn := fake.isVersionCompatibleReturnsOnCall[len(fake.isVersionCompatibleArgsForCall)]
@@ -977,12 +1016,12 @@ func (fake *FakeWorker) IsVersionCompatibleReturnsOnCall(i int, result1 bool) {
 	}{result1}
 }
 
-func (fake *FakeWorker) FindVolumeForResourceCache(logger lager.Logger, resourceCache *db.UsedResourceCache) (worker.Volume, bool, error) {
+func (fake *FakeWorker) FindVolumeForResourceCache(logger lager.Logger, resourceCache db.UsedResourceCache) (worker.Volume, bool, error) {
 	fake.findVolumeForResourceCacheMutex.Lock()
 	ret, specificReturn := fake.findVolumeForResourceCacheReturnsOnCall[len(fake.findVolumeForResourceCacheArgsForCall)]
 	fake.findVolumeForResourceCacheArgsForCall = append(fake.findVolumeForResourceCacheArgsForCall, struct {
 		logger        lager.Logger
-		resourceCache *db.UsedResourceCache
+		resourceCache db.UsedResourceCache
 	}{logger, resourceCache})
 	fake.recordInvocation("FindVolumeForResourceCache", []interface{}{logger, resourceCache})
 	fake.findVolumeForResourceCacheMutex.Unlock()
@@ -1001,7 +1040,7 @@ func (fake *FakeWorker) FindVolumeForResourceCacheCallCount() int {
 	return len(fake.findVolumeForResourceCacheArgsForCall)
 }
 
-func (fake *FakeWorker) FindVolumeForResourceCacheArgsForCall(i int) (lager.Logger, *db.UsedResourceCache) {
+func (fake *FakeWorker) FindVolumeForResourceCacheArgsForCall(i int) (lager.Logger, db.UsedResourceCache) {
 	fake.findVolumeForResourceCacheMutex.RLock()
 	defer fake.findVolumeForResourceCacheMutex.RUnlock()
 	return fake.findVolumeForResourceCacheArgsForCall[i].logger, fake.findVolumeForResourceCacheArgsForCall[i].resourceCache
@@ -1184,46 +1223,6 @@ func (fake *FakeWorker) GardenClientReturnsOnCall(i int, result1 garden.Client) 
 	}{result1}
 }
 
-func (fake *FakeWorker) BaggageclaimClient() baggageclaim.Client {
-	fake.baggageclaimClientMutex.Lock()
-	ret, specificReturn := fake.baggageclaimClientReturnsOnCall[len(fake.baggageclaimClientArgsForCall)]
-	fake.baggageclaimClientArgsForCall = append(fake.baggageclaimClientArgsForCall, struct{}{})
-	fake.recordInvocation("BaggageclaimClient", []interface{}{})
-	fake.baggageclaimClientMutex.Unlock()
-	if fake.BaggageclaimClientStub != nil {
-		return fake.BaggageclaimClientStub()
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fake.baggageclaimClientReturns.result1
-}
-
-func (fake *FakeWorker) BaggageclaimClientCallCount() int {
-	fake.baggageclaimClientMutex.RLock()
-	defer fake.baggageclaimClientMutex.RUnlock()
-	return len(fake.baggageclaimClientArgsForCall)
-}
-
-func (fake *FakeWorker) BaggageclaimClientReturns(result1 baggageclaim.Client) {
-	fake.BaggageclaimClientStub = nil
-	fake.baggageclaimClientReturns = struct {
-		result1 baggageclaim.Client
-	}{result1}
-}
-
-func (fake *FakeWorker) BaggageclaimClientReturnsOnCall(i int, result1 baggageclaim.Client) {
-	fake.BaggageclaimClientStub = nil
-	if fake.baggageclaimClientReturnsOnCall == nil {
-		fake.baggageclaimClientReturnsOnCall = make(map[int]struct {
-			result1 baggageclaim.Client
-		})
-	}
-	fake.baggageclaimClientReturnsOnCall[i] = struct {
-		result1 baggageclaim.Client
-	}{result1}
-}
-
 func (fake *FakeWorker) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
@@ -1255,6 +1254,8 @@ func (fake *FakeWorker) Invocations() map[string][][]interface{} {
 	defer fake.uptimeMutex.RUnlock()
 	fake.isOwnedByTeamMutex.RLock()
 	defer fake.isOwnedByTeamMutex.RUnlock()
+	fake.ephemeralMutex.RLock()
+	defer fake.ephemeralMutex.RUnlock()
 	fake.isVersionCompatibleMutex.RLock()
 	defer fake.isVersionCompatibleMutex.RUnlock()
 	fake.findVolumeForResourceCacheMutex.RLock()
@@ -1265,8 +1266,6 @@ func (fake *FakeWorker) Invocations() map[string][][]interface{} {
 	defer fake.certsVolumeMutex.RUnlock()
 	fake.gardenClientMutex.RLock()
 	defer fake.gardenClientMutex.RUnlock()
-	fake.baggageclaimClientMutex.RLock()
-	defer fake.baggageclaimClientMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

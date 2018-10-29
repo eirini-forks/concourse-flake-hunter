@@ -20,16 +20,15 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("I'm a BuildStarter", func() {
+var _ = Describe("BuildStarter", func() {
 	var (
-		fakePipeline     *dbfakes.FakePipeline
-		fakeUpdater      *maxinflightfakes.FakeUpdater
-		fakeFactory      *schedulerfakes.FakeBuildFactory
-		fakeEngine       *enginefakes.FakeEngine
-		pendingBuilds    []db.Build
-		fakeScanner      *schedulerfakes.FakeScanner
-		fakeInputMapper  *inputmapperfakes.FakeInputMapper
-		fakeBuildStarter *schedulerfakes.FakeBuildStarter
+		fakePipeline    *dbfakes.FakePipeline
+		fakeUpdater     *maxinflightfakes.FakeUpdater
+		fakeFactory     *schedulerfakes.FakeBuildFactory
+		fakeEngine      *enginefakes.FakeEngine
+		pendingBuilds   []db.Build
+		fakeScanner     *schedulerfakes.FakeScanner
+		fakeInputMapper *inputmapperfakes.FakeInputMapper
 
 		buildStarter scheduler.BuildStarter
 
@@ -43,7 +42,6 @@ var _ = Describe("I'm a BuildStarter", func() {
 		fakeEngine = new(enginefakes.FakeEngine)
 		fakeScanner = new(schedulerfakes.FakeScanner)
 		fakeInputMapper = new(inputmapperfakes.FakeInputMapper)
-		fakeBuildStarter = new(schedulerfakes.FakeBuildStarter)
 
 		buildStarter = scheduler.NewBuildStarter(fakePipeline, fakeUpdater, fakeFactory, fakeScanner, fakeInputMapper, fakeEngine)
 
@@ -238,7 +236,7 @@ var _ = Describe("I'm a BuildStarter", func() {
 
 							It("saved the next input mapping for the right job and versions", func() {
 								Expect(fakeInputMapper.SaveNextInputMappingCallCount()).To(Equal(1))
-								_, actualVersionsDB, actualJob := fakeInputMapper.SaveNextInputMappingArgsForCall(0)
+								_, actualVersionsDB, actualJob, _ := fakeInputMapper.SaveNextInputMappingArgsForCall(0)
 								Expect(actualVersionsDB).To(Equal(versionsDB))
 								Expect(actualJob.Name()).To(Equal(job.Name()))
 							})
@@ -246,7 +244,7 @@ var _ = Describe("I'm a BuildStarter", func() {
 
 						Context("when saving the next input mapping succeeds", func() {
 							BeforeEach(func() {
-								fakeInputMapper.SaveNextInputMappingStub = func(lager.Logger, *algorithm.VersionsDB, db.Job) (algorithm.InputMapping, error) {
+								fakeInputMapper.SaveNextInputMappingStub = func(lager.Logger, *algorithm.VersionsDB, db.Job, db.Resources) (algorithm.InputMapping, error) {
 									defer GinkgoRecover()
 									return nil, nil
 								}

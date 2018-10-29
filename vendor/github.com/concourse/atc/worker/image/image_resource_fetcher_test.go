@@ -32,7 +32,6 @@ import (
 
 var _ = Describe("Image", func() {
 	var fakeResourceFactory *resourcefakes.FakeResourceFactory
-	var fakeImageResource *resourcefakes.FakeResource
 	var fakeResourceFetcherFactory *resourcefakes.FakeFetcherFactory
 	var fakeResourceFetcher *resourcefakes.FakeFetcher
 	var fakeResourceCacheFactory *dbfakes.FakeResourceCacheFactory
@@ -62,7 +61,6 @@ var _ = Describe("Image", func() {
 
 	BeforeEach(func() {
 		fakeResourceFactory = new(resourcefakes.FakeResourceFactory)
-		fakeImageResource = new(resourcefakes.FakeResource)
 		fakeResourceFetcherFactory = new(resourcefakes.FakeFetcherFactory)
 		fakeResourceFetcher = new(resourcefakes.FakeFetcher)
 		fakeResourceConfigFactory = new(dbfakes.FakeResourceConfigFactory)
@@ -145,12 +143,10 @@ var _ = Describe("Image", func() {
 		Context("when initializing the Check resource works", func() {
 			var (
 				fakeCheckResource *resourcefakes.FakeResource
-				fakeBuildResource *resourcefakes.FakeResource
 			)
 
 			BeforeEach(func() {
 				fakeCheckResource = new(resourcefakes.FakeResource)
-				fakeBuildResource = new(resourcefakes.FakeResource)
 				fakeResourceFactory.NewResourceReturnsOnCall(0, fakeCheckResource, nil)
 			})
 
@@ -242,7 +238,7 @@ var _ = Describe("Image", func() {
 					Context("when fetching resource succeeds", func() {
 						var (
 							fakeVersionedSource   *resourcefakes.FakeVersionedSource
-							fakeUsedResourceCache *db.UsedResourceCache
+							fakeUsedResourceCache *dbfakes.FakeUsedResourceCache
 						)
 
 						BeforeEach(func() {
@@ -253,17 +249,19 @@ var _ = Describe("Image", func() {
 							fakeVolume := new(workerfakes.FakeVolume)
 							fakeVersionedSource.VolumeReturns(fakeVolume)
 
-							fakeUsedResourceCache = new(db.UsedResourceCache)
+							fakeUsedResourceCache = new(dbfakes.FakeUsedResourceCache)
 							fakeResourceCacheFactory.FindOrCreateResourceCacheReturns(fakeUsedResourceCache, nil)
 						})
 
 						Context("when the resource has a volume", func() {
 							var (
-								fakeVolume *workerfakes.FakeVolume
-								volumePath string
+								fakeVolume            *workerfakes.FakeVolume
+								volumePath            string
+								fakeUsedResourceCache *dbfakes.FakeUsedResourceCache
 							)
 
 							BeforeEach(func() {
+								fakeUsedResourceCache = new(dbfakes.FakeUsedResourceCache)
 								fakeVolume = new(workerfakes.FakeVolume)
 								volumePath = "C:/Documents and Settings/Evan/My Documents"
 
@@ -340,7 +338,7 @@ var _ = Describe("Image", func() {
 
 							It("ran 'check' with the right config", func() {
 								Expect(fakeCheckResource.CheckCallCount()).To(Equal(1))
-								checkSource, checkVersion := fakeCheckResource.CheckArgsForCall(0)
+								_, checkSource, checkVersion := fakeCheckResource.CheckArgsForCall(0)
 								Expect(checkVersion).To(BeNil())
 								Expect(checkSource).To(Equal(atc.Source{"some": "super-secret-sauce"}))
 							})
@@ -367,7 +365,7 @@ var _ = Describe("Image", func() {
 									atc.Source{"some": "super-secret-sauce"},
 									atc.Params{"some": "params"},
 									customTypes,
-									&db.UsedResourceCache{},
+									fakeUsedResourceCache,
 									db.NewImageGetContainerOwner(fakeCreatingContainer),
 								)))
 								Expect(actualCustomTypes).To(Equal(customTypes))
@@ -503,7 +501,7 @@ var _ = Describe("Image", func() {
 			Context("when fetching resource succeeds", func() {
 				var (
 					fakeVersionedSource   *resourcefakes.FakeVersionedSource
-					fakeUsedResourceCache *db.UsedResourceCache
+					fakeUsedResourceCache *dbfakes.FakeUsedResourceCache
 				)
 
 				BeforeEach(func() {
@@ -514,17 +512,19 @@ var _ = Describe("Image", func() {
 					fakeVolume := new(workerfakes.FakeVolume)
 					fakeVersionedSource.VolumeReturns(fakeVolume)
 
-					fakeUsedResourceCache = new(db.UsedResourceCache)
+					fakeUsedResourceCache = new(dbfakes.FakeUsedResourceCache)
 					fakeResourceCacheFactory.FindOrCreateResourceCacheReturns(fakeUsedResourceCache, nil)
 				})
 
 				Context("when the resource has a volume", func() {
 					var (
-						fakeVolume *workerfakes.FakeVolume
-						volumePath string
+						fakeUsedResourceCache *dbfakes.FakeUsedResourceCache
+						fakeVolume            *workerfakes.FakeVolume
+						volumePath            string
 					)
 
 					BeforeEach(func() {
+						fakeUsedResourceCache = new(dbfakes.FakeUsedResourceCache)
 						fakeVolume = new(workerfakes.FakeVolume)
 						volumePath = "C:/Documents and Settings/Evan/My Documents"
 
@@ -581,7 +581,7 @@ var _ = Describe("Image", func() {
 							atc.Source{"some": "super-secret-sauce"},
 							atc.Params{"some": "params"},
 							customTypes,
-							&db.UsedResourceCache{},
+							fakeUsedResourceCache,
 							db.NewImageGetContainerOwner(fakeCreatingContainer),
 						)))
 						Expect(actualCustomTypes).To(Equal(customTypes))

@@ -1,6 +1,7 @@
 package radar_test
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -30,6 +31,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 		fakeResourceConfigCheckSessionFactory *dbfakes.FakeResourceConfigCheckSessionFactory
 		fakeResourceConfigCheckSession        *dbfakes.FakeResourceConfigCheckSession
 		fakeDBPipeline                        *dbfakes.FakePipeline
+		fakeResourceConfig                    *dbfakes.FakeResourceConfig
 		fakeClock                             *fakeclock.FakeClock
 		interval                              time.Duration
 		variables                             creds.Variables
@@ -53,7 +55,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 		versionedResourceType = atc.VersionedResourceType{
 			ResourceType: atc.ResourceType{
 				Name:   "some-custom-resource",
-				Type:   "docker-image",
+				Type:   "registry-image",
 				Source: atc.Source{"custom": "((source-params))"},
 				Tags:   atc.Tags{"some-tag"},
 			},
@@ -65,15 +67,17 @@ var _ = Describe("ResourceTypeScanner", func() {
 		fakeResourceConfigCheckSession = new(dbfakes.FakeResourceConfigCheckSession)
 		fakeResourceType = new(dbfakes.FakeResourceType)
 		fakeDBPipeline = new(dbfakes.FakePipeline)
+		fakeResourceConfig = new(dbfakes.FakeResourceConfig)
 		fakeClock = fakeclock.NewFakeClock(epoch)
 
 		fakeResourceConfigCheckSessionFactory.FindOrCreateResourceConfigCheckSessionReturns(fakeResourceConfigCheckSession, nil)
 
-		fakeResourceConfigCheckSession.ResourceConfigReturns(&db.UsedResourceConfig{ID: 123})
+		fakeResourceConfig.IDReturns(123)
+		fakeResourceConfigCheckSession.ResourceConfigReturns(fakeResourceConfig)
 
 		fakeResourceType.IDReturns(39)
 		fakeResourceType.NameReturns("some-custom-resource")
-		fakeResourceType.TypeReturns("docker-image")
+		fakeResourceType.TypeReturns("registry-image")
 		fakeResourceType.SourceReturns(atc.Source{"custom": "((source-params))"})
 		fakeResourceType.VersionReturns(atc.Version{"custom": "version"})
 		fakeResourceType.TagsReturns(atc.Tags{"some-tag"})
@@ -140,7 +144,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 			It("constructs the resource of the correct type", func() {
 				Expect(fakeResourceConfigCheckSessionFactory.FindOrCreateResourceConfigCheckSessionCallCount()).To(Equal(1))
 				_, resourceType, resourceSource, resourceTypes, _ := fakeResourceConfigCheckSessionFactory.FindOrCreateResourceConfigCheckSessionArgsForCall(0)
-				Expect(resourceType).To(Equal("docker-image"))
+				Expect(resourceType).To(Equal("registry-image"))
 				Expect(resourceSource).To(Equal(atc.Source{"custom": "some-secret-sauce"}))
 				Expect(resourceTypes).To(Equal(creds.VersionedResourceTypes{}))
 
@@ -156,7 +160,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 				}))
 				Expect(resourceSpec).To(Equal(worker.ContainerSpec{
 					ImageSpec: worker.ImageSpec{
-						ResourceType: "docker-image",
+						ResourceType: "registry-image",
 					},
 					Tags:   []string{"some-tag"},
 					TeamID: 123,
@@ -170,8 +174,8 @@ var _ = Describe("ResourceTypeScanner", func() {
 
 					fakeResourceType = new(dbfakes.FakeResourceType)
 					fakeResourceType.IDReturns(40)
-					fakeResourceType.NameReturns("docker-image")
-					fakeResourceType.TypeReturns("docker-image")
+					fakeResourceType.NameReturns("registry-image")
+					fakeResourceType.TypeReturns("registry-image")
 					fakeResourceType.SourceReturns(atc.Source{"custom": "((source-params))"})
 					fakeResourceType.VersionReturns(atc.Version{"custom": "image-version"})
 
@@ -186,7 +190,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 				It("constructs the resource of the correct type", func() {
 					Expect(fakeResourceConfigCheckSessionFactory.FindOrCreateResourceConfigCheckSessionCallCount()).To(Equal(1))
 					_, resourceType, resourceSource, resourceTypes, _ := fakeResourceConfigCheckSessionFactory.FindOrCreateResourceConfigCheckSessionArgsForCall(0)
-					Expect(resourceType).To(Equal("docker-image"))
+					Expect(resourceType).To(Equal("registry-image"))
 					Expect(resourceSource).To(Equal(atc.Source{"custom": "some-secret-sauce"}))
 					Expect(resourceTypes).To(Equal(creds.NewVersionedResourceTypes(variables, atc.VersionedResourceTypes{
 						versionedResourceType,
@@ -204,13 +208,47 @@ var _ = Describe("ResourceTypeScanner", func() {
 					}))
 					Expect(resourceSpec).To(Equal(worker.ContainerSpec{
 						ImageSpec: worker.ImageSpec{
-							ResourceType: "docker-image",
+							ResourceType: "registry-image",
 						},
 						TeamID: 123,
 					}))
 					Expect(resourceTypes).To(Equal(creds.NewVersionedResourceTypes(variables, atc.VersionedResourceTypes{
 						versionedResourceType,
 					})))
+				})
+			})
+
+			Context("when the resource type config has a specified check interval", func() {
+				BeforeEach(func() {
+					fakeResourceType.CheckEveryReturns("10ms")
+					fakeDBPipeline.ResourceTypeReturns(fakeResourceType, true, nil)
+				})
+
+				It("leases for the configured interval", func() {
+					Expect(fakeDBPipeline.AcquireResourceTypeCheckingLockWithIntervalCheckCallCount()).To(Equal(1))
+
+					_, resourceTypeName, resourceConfig, leaseInterval, immediate := fakeDBPipeline.AcquireResourceTypeCheckingLockWithIntervalCheckArgsForCall(0)
+					Expect(resourceTypeName).To(Equal(fakeResourceType.Name()))
+					Expect(leaseInterval).To(Equal(10 * time.Millisecond))
+					Expect(resourceConfig).To(Equal(fakeResourceConfigCheckSession.ResourceConfig()))
+					Expect(immediate).To(BeFalse())
+
+					Eventually(fakeLock.ReleaseCallCount()).Should(Equal(1))
+				})
+
+				It("returns configured interval", func() {
+					Expect(actualInterval).To(Equal(10 * time.Millisecond))
+				})
+
+				Context("when the interval cannot be parsed", func() {
+					BeforeEach(func() {
+						fakeResourceType.CheckEveryReturns("bad-value")
+						fakeDBPipeline.ResourceTypeReturns(fakeResourceType, true, nil)
+					})
+
+					It("returns an error", func() {
+						Expect(runErr).To(HaveOccurred())
+					})
 				})
 			})
 
@@ -232,7 +270,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 				})
 
 				It("checks from nil", func() {
-					_, version := fakeResource.CheckArgsForCall(0)
+					_, _, version := fakeResource.CheckArgsForCall(0)
 					Expect(version).To(BeNil())
 				})
 			})
@@ -244,7 +282,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 
 				It("checks with it", func() {
 					Expect(fakeResource.CheckCallCount()).To(Equal(1))
-					_, version := fakeResource.CheckArgsForCall(0)
+					_, _, version := fakeResource.CheckArgsForCall(0)
 					Expect(version).To(Equal(atc.Version{"version": "42"}))
 				})
 			})
@@ -268,7 +306,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 					}
 
 					check := 0
-					fakeResource.CheckStub = func(source atc.Source, from atc.Version) ([]atc.Version, error) {
+					fakeResource.CheckStub = func(ctx context.Context, source atc.Source, from atc.Version) ([]atc.Version, error) {
 						defer GinkgoRecover()
 
 						Expect(source).To(Equal(atc.Source{"custom": "some-secret-sauce"}))
@@ -349,7 +387,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 			It("constructs the resource of the correct type", func() {
 				Expect(fakeResourceConfigCheckSessionFactory.FindOrCreateResourceConfigCheckSessionCallCount()).To(Equal(1))
 				_, resourceType, resourceSource, resourceTypes, _ := fakeResourceConfigCheckSessionFactory.FindOrCreateResourceConfigCheckSessionArgsForCall(0)
-				Expect(resourceType).To(Equal("docker-image"))
+				Expect(resourceType).To(Equal("registry-image"))
 				Expect(resourceSource).To(Equal(atc.Source{"custom": "some-secret-sauce"}))
 				Expect(resourceTypes).To(Equal(creds.VersionedResourceTypes{}))
 
@@ -365,7 +403,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 				}))
 				Expect(resourceSpec).To(Equal(worker.ContainerSpec{
 					ImageSpec: worker.ImageSpec{
-						ResourceType: "docker-image",
+						ResourceType: "registry-image",
 					},
 					Tags:   []string{"some-tag"},
 					TeamID: 123,
@@ -380,7 +418,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 					otherResourceType = new(dbfakes.FakeResourceType)
 					otherResourceType.IDReturns(39)
 					otherResourceType.NameReturns("custom-resource-parent")
-					otherResourceType.TypeReturns("docker-image")
+					otherResourceType.TypeReturns("registry-image")
 
 					fakeResourceType = new(dbfakes.FakeResourceType)
 					fakeResourceType.IDReturns(40)
@@ -445,8 +483,8 @@ var _ = Describe("ResourceTypeScanner", func() {
 
 					fakeResourceType = new(dbfakes.FakeResourceType)
 					fakeResourceType.IDReturns(40)
-					fakeResourceType.NameReturns("docker-image")
-					fakeResourceType.TypeReturns("docker-image")
+					fakeResourceType.NameReturns("registry-image")
+					fakeResourceType.TypeReturns("registry-image")
 					fakeResourceType.SourceReturns(atc.Source{"custom": "((source-params))"})
 
 					fakeDBPipeline.ResourceTypesReturns([]db.ResourceType{
@@ -460,7 +498,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 				It("constructs the resource of the correct type", func() {
 					Expect(fakeResourceConfigCheckSessionFactory.FindOrCreateResourceConfigCheckSessionCallCount()).To(Equal(1))
 					_, resourceType, resourceSource, resourceTypes, _ := fakeResourceConfigCheckSessionFactory.FindOrCreateResourceConfigCheckSessionArgsForCall(0)
-					Expect(resourceType).To(Equal("docker-image"))
+					Expect(resourceType).To(Equal("registry-image"))
 					Expect(resourceSource).To(Equal(atc.Source{"custom": "some-secret-sauce"}))
 					Expect(resourceTypes).To(Equal(creds.NewVersionedResourceTypes(variables, atc.VersionedResourceTypes{
 						versionedResourceType,
@@ -478,7 +516,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 					}))
 					Expect(resourceSpec).To(Equal(worker.ContainerSpec{
 						ImageSpec: worker.ImageSpec{
-							ResourceType: "docker-image",
+							ResourceType: "registry-image",
 						},
 						TeamID: 123,
 					}))
@@ -506,7 +544,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 				})
 
 				It("checks from nil", func() {
-					_, version := fakeResource.CheckArgsForCall(0)
+					_, _, version := fakeResource.CheckArgsForCall(0)
 					Expect(version).To(BeNil())
 				})
 			})
@@ -518,7 +556,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 
 				It("checks with it", func() {
 					Expect(fakeResource.CheckCallCount()).To(Equal(1))
-					_, version := fakeResource.CheckArgsForCall(0)
+					_, _, version := fakeResource.CheckArgsForCall(0)
 					Expect(version).To(Equal(atc.Version{"version": "42"}))
 				})
 			})
@@ -542,7 +580,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 					}
 
 					check := 0
-					fakeResource.CheckStub = func(source atc.Source, from atc.Version) ([]atc.Version, error) {
+					fakeResource.CheckStub = func(ctx context.Context, source atc.Source, from atc.Version) ([]atc.Version, error) {
 						defer GinkgoRecover()
 
 						Expect(source).To(Equal(atc.Source{"custom": "some-secret-sauce"}))
@@ -585,7 +623,7 @@ var _ = Describe("ResourceTypeScanner", func() {
 					results <- true
 					close(results)
 
-					fakeDBPipeline.AcquireResourceTypeCheckingLockWithIntervalCheckStub = func(logger lager.Logger, resourceName string, resourceConfig *db.UsedResourceConfig, interval time.Duration, immediate bool) (lock.Lock, bool, error) {
+					fakeDBPipeline.AcquireResourceTypeCheckingLockWithIntervalCheckStub = func(logger lager.Logger, resourceName string, resourceConfig db.ResourceConfig, interval time.Duration, immediate bool) (lock.Lock, bool, error) {
 						if <-results {
 							return fakeLock, true, nil
 						} else {

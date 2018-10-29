@@ -16,6 +16,7 @@ import (
 	"github.com/concourse/atc/api"
 	"github.com/concourse/atc/api/accessor"
 	"github.com/concourse/atc/api/auth"
+	"github.com/concourse/atc/creds"
 	"github.com/concourse/atc/creds/credsfakes"
 	"github.com/concourse/atc/db"
 	"github.com/concourse/atc/db/dbfakes"
@@ -45,6 +46,7 @@ var (
 	dbTeamFactory           *dbfakes.FakeTeamFactory
 	dbPipelineFactory       *dbfakes.FakePipelineFactory
 	dbJobFactory            *dbfakes.FakeJobFactory
+	dbResourceFactory       *dbfakes.FakeResourceFactory
 	fakePipeline            *dbfakes.FakePipeline
 	fakeAccessor            *accessorfakes.FakeAccessFactory
 	dbWorkerFactory         *dbfakes.FakeWorkerFactory
@@ -55,6 +57,7 @@ var (
 	fakeSchedulerFactory    *jobserverfakes.FakeSchedulerFactory
 	fakeScannerFactory      *resourceserverfakes.FakeScannerFactory
 	fakeVariablesFactory    *credsfakes.FakeVariablesFactory
+	credsManagers           creds.Managers
 	interceptTimeoutFactory *containerserverfakes.FakeInterceptTimeoutFactory
 	interceptTimeout        *containerserverfakes.FakeInterceptTimeout
 	peerURL                 string
@@ -94,6 +97,7 @@ var _ = BeforeEach(func() {
 	dbTeamFactory = new(dbfakes.FakeTeamFactory)
 	dbPipelineFactory = new(dbfakes.FakePipelineFactory)
 	dbJobFactory = new(dbfakes.FakeJobFactory)
+	dbResourceFactory = new(dbfakes.FakeResourceFactory)
 	dbBuildFactory = new(dbfakes.FakeBuildFactory)
 
 	interceptTimeoutFactory = new(containerserverfakes.FakeInterceptTimeoutFactory)
@@ -128,7 +132,7 @@ var _ = BeforeEach(func() {
 	fakeDestroyer = new(gcfakes.FakeDestroyer)
 
 	fakeVariablesFactory = new(credsfakes.FakeVariablesFactory)
-
+	credsManagers = make(creds.Managers)
 	var err error
 
 	cliDownloadsDir, err = ioutil.TempDir("", "cli-downloads")
@@ -166,11 +170,10 @@ var _ = BeforeEach(func() {
 			checkWorkerTeamAccessHandlerFactory,
 		),
 
-		oAuthBaseURL,
-
 		dbTeamFactory,
 		dbPipelineFactory,
 		dbJobFactory,
+		dbResourceFactory,
 		dbWorkerFactory,
 		fakeVolumeRepository,
 		fakeContainerRepository,
@@ -190,14 +193,13 @@ var _ = BeforeEach(func() {
 
 		sink,
 
-		expire,
-
 		isTLSEnabled,
 
 		cliDownloadsDir,
 		"1.2.3",
 		"4.5.6",
 		fakeVariablesFactory,
+		credsManagers,
 		interceptTimeoutFactory,
 	)
 

@@ -19,12 +19,12 @@ var _ = Describe("WorkerFactory", func() {
 
 	BeforeEach(func() {
 		atcWorker = atc.Worker{
-			GardenAddr:      "some-garden-addr",
-			BaggageclaimURL: "some-bc-url",
-			//		ReaperAddr:       "some-reaper-addr",
+			GardenAddr:       "some-garden-addr",
+			BaggageclaimURL:  "some-bc-url",
 			HTTPProxyURL:     "some-http-proxy-url",
 			HTTPSProxyURL:    "some-https-proxy-url",
 			NoProxy:          "some-no-proxy",
+			Ephemeral:        true,
 			ActiveContainers: 140,
 			ResourceTypes: []atc.WorkerResourceType{
 				{
@@ -105,17 +105,37 @@ var _ = Describe("WorkerFactory", func() {
 				Expect(count).To(Equal(1))
 			})
 
-			It("replaces outdated worker resource type", func() {
+			It("replaces outdated worker resource type image", func() {
 				beforeIDs := resourceTypeIDs("some-name")
 				Expect(len(beforeIDs)).To(Equal(2))
 
-				atcWorker.ResourceTypes[0].Version = "some-new-version"
+				atcWorker.ResourceTypes[0].Image = "some-wild-new-image"
 
 				_, err := workerFactory.SaveWorker(atcWorker, 5*time.Minute)
 				Expect(err).NotTo(HaveOccurred())
 
 				afterIDs := resourceTypeIDs("some-name")
 				Expect(len(afterIDs)).To(Equal(2))
+
+				Expect(afterIDs).ToNot(Equal(beforeIDs))
+
+				Expect(beforeIDs["some-resource-type"]).ToNot(Equal(afterIDs["some-resource-type"]))
+				Expect(beforeIDs["other-resource-type"]).To(Equal(afterIDs["other-resource-type"]))
+			})
+
+			It("replaces outdated worker resource type version", func() {
+				beforeIDs := resourceTypeIDs("some-name")
+				Expect(len(beforeIDs)).To(Equal(2))
+
+				atcWorker.ResourceTypes[0].Version = "some-wild-new-version"
+
+				_, err := workerFactory.SaveWorker(atcWorker, 5*time.Minute)
+				Expect(err).NotTo(HaveOccurred())
+
+				afterIDs := resourceTypeIDs("some-name")
+				Expect(len(afterIDs)).To(Equal(2))
+
+				Expect(afterIDs).ToNot(Equal(beforeIDs))
 
 				Expect(beforeIDs["some-resource-type"]).ToNot(Equal(afterIDs["some-resource-type"]))
 				Expect(beforeIDs["other-resource-type"]).To(Equal(afterIDs["other-resource-type"]))
@@ -199,10 +219,10 @@ var _ = Describe("WorkerFactory", func() {
 				Expect(*foundWorker.GardenAddr()).To(Equal("some-garden-addr"))
 				Expect(foundWorker.State()).To(Equal(db.WorkerStateRunning))
 				Expect(*foundWorker.BaggageclaimURL()).To(Equal("some-bc-url"))
-				//	Expect(*foundWorker.ReaperAddr()).To(Equal("some-reaper-addr"))
 				Expect(foundWorker.HTTPProxyURL()).To(Equal("some-http-proxy-url"))
 				Expect(foundWorker.HTTPSProxyURL()).To(Equal("some-https-proxy-url"))
 				Expect(foundWorker.NoProxy()).To(Equal("some-no-proxy"))
+				Expect(foundWorker.Ephemeral()).To(Equal(true))
 				Expect(foundWorker.ActiveContainers()).To(Equal(140))
 				Expect(foundWorker.ResourceTypes()).To(Equal([]atc.WorkerResourceType{
 					{
@@ -238,7 +258,6 @@ var _ = Describe("WorkerFactory", func() {
 					Expect(found).To(BeTrue())
 					Expect(foundWorker.GardenAddr()).To(BeNil())
 					Expect(foundWorker.BaggageclaimURL()).To(BeNil())
-					//			Expect(foundWorker.ReaperAddr()).To(BeNil())
 				})
 			})
 		})
@@ -273,21 +292,18 @@ var _ = Describe("WorkerFactory", func() {
 				atcWorker.Name = "some-new-worker"
 				atcWorker.GardenAddr = "some-other-garden-addr"
 				atcWorker.BaggageclaimURL = "some-other-bc-url"
-				//		atcWorker.ReaperAddr = "some-other-reaper-addr"
 				_, err = team1.SaveWorker(atcWorker, 0)
 				Expect(err).NotTo(HaveOccurred())
 
 				atcWorker.Name = "some-other-new-worker"
 				atcWorker.GardenAddr = "some-other-other-garden-addr"
 				atcWorker.BaggageclaimURL = "some-other-other-bc-url"
-				//	atcWorker.ReaperAddr = "some-other-reaper-addr"
 				_, err = team2.SaveWorker(atcWorker, 0)
 				Expect(err).NotTo(HaveOccurred())
 
 				atcWorker.Name = "not-this-worker"
 				atcWorker.GardenAddr = "not-this-garden-addr"
 				atcWorker.BaggageclaimURL = "not-this-bc-url"
-				//	atcWorker.ReaperAddr = "not-this-reaper-addr"
 				_, err = team3.SaveWorker(atcWorker, 0)
 				Expect(err).NotTo(HaveOccurred())
 			})
@@ -340,7 +356,6 @@ var _ = Describe("WorkerFactory", func() {
 				atcWorker.Name = "some-new-worker"
 				atcWorker.GardenAddr = "some-other-garden-addr"
 				atcWorker.BaggageclaimURL = "some-other-bc-url"
-				//	atcWorker.ReaperAddr = "some-other-reaper-addr"
 				_, err = workerFactory.SaveWorker(atcWorker, 0)
 				Expect(err).NotTo(HaveOccurred())
 			})
@@ -359,13 +374,11 @@ var _ = Describe("WorkerFactory", func() {
 						WithTransform((db.Worker).Name, Equal("some-name")),
 						WithTransform((db.Worker).GardenAddr, Equal(strptr("some-garden-addr"))),
 						WithTransform((db.Worker).BaggageclaimURL, Equal(strptr("some-bc-url"))),
-						//		WithTransform((db.Worker).ReaperAddr, Equal(strptr("some-reaper-addr"))),
 					),
 					And(
 						WithTransform((db.Worker).Name, Equal("some-new-worker")),
 						WithTransform((db.Worker).GardenAddr, Equal(strptr("some-other-garden-addr"))),
 						WithTransform((db.Worker).BaggageclaimURL, Equal(strptr("some-other-bc-url"))),
-						//		WithTransform((db.Worker).ReaperAddr, Equal(strptr("some-other-reaper-addr"))),
 					),
 				))
 			})
@@ -420,7 +433,6 @@ var _ = Describe("WorkerFactory", func() {
 				Expect(foundWorker.ActiveContainers()).To(And(Not(Equal(activeContainers)), Equal(1)))
 				Expect(*foundWorker.GardenAddr()).To(Equal("some-garden-addr"))
 				Expect(*foundWorker.BaggageclaimURL()).To(Equal("some-bc-url"))
-				//		Expect(*foundWorker.ReaperAddr()).To(Equal("some-reaper-addr"))
 			})
 
 			Context("when the current state is landing", func() {
@@ -474,7 +486,6 @@ var _ = Describe("WorkerFactory", func() {
 
 					_, err = workerLifecycle.StallUnresponsiveWorkers()
 					Expect(err).NotTo(HaveOccurred())
-
 				})
 
 				It("sets the state as running", func() {
@@ -482,6 +493,7 @@ var _ = Describe("WorkerFactory", func() {
 					Expect(err).NotTo(HaveOccurred())
 					Expect(found).To(BeTrue())
 
+					Expect(stalledWorker.State()).To(Equal(db.WorkerStateStalled))
 					Expect(stalledWorker.GardenAddr()).To(BeNil())
 					Expect(stalledWorker.BaggageclaimURL()).To(BeNil())
 
@@ -490,7 +502,6 @@ var _ = Describe("WorkerFactory", func() {
 
 					Expect(*foundWorker.GardenAddr()).To(Equal("some-garden-addr"))
 					Expect(*foundWorker.BaggageclaimURL()).To(Equal("some-bc-url"))
-					//			Expect(*foundWorker.ReaperAddr()).To(Equal("some-reaper-addr"))
 					Expect(foundWorker.State()).To(Equal(db.WorkerStateRunning))
 				})
 			})

@@ -4,7 +4,8 @@ type Container struct {
 	ID         string `json:"id"`
 	WorkerName string `json:"worker_name"`
 
-	Type string `json:"type,omitempty"`
+	State string `json:"state,omitempty"`
+	Type  string `json:"type,omitempty"`
 
 	StepName string `json:"step_name,omitempty"`
 	Attempt  string `json:"attempt,omitempty"`
@@ -24,3 +25,10 @@ type Container struct {
 	User             string `json:"user,omitempty"`
 	WorkingDirectory string `json:"working_directory,omitempty"`
 }
+
+const (
+	ContainerStateCreated    = "created"
+	ContainerStateCreating   = "creating"
+	ContainerStateDestroying = "destroying"
+	ContainerStateFailed     = "failed"
+)

@@ -1,7 +1,8 @@
 package db_test
 
 import (
-	"encoding/json"
+	"database/sql"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -39,10 +40,15 @@ var _ = Describe("Team", func() {
 	})
 
 	Describe("Delete", func() {
+		var err error
+		var otherTeamPipeline db.Pipeline
+
 		BeforeEach(func() {
-			team, found, err := teamFactory.FindTeam("some-other-team")
-			Expect(team.Name()).To(Equal("some-other-team"))
-			Expect(found).To(BeTrue())
+			otherTeamPipeline, _, err = otherTeam.SavePipeline("fake-pipeline", atc.Config{
+				Jobs: atc.JobConfigs{
+					{Name: "job-name"},
+				},
+			}, db.ConfigVersion(1), db.PipelineUnpaused)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = otherTeam.Delete()
@@ -54,6 +60,20 @@ var _ = Describe("Team", func() {
 			Expect(team).To(BeNil())
 			Expect(found).To(BeFalse())
 			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("drops the team_build_events_ID table", func() {
+			var exists bool
+			err := dbConn.QueryRow(fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'team_build_events_%d')", otherTeam.ID())).Scan(&exists)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(exists).To(BeFalse())
+		})
+
+		It("drops the teams pipeline_build_events_ID table", func() {
+			var exists bool
+			err := dbConn.QueryRow(fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pipeline_build_events_%d')", otherTeamPipeline.ID())).Scan(&exists)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(exists).To(BeFalse())
 		})
 	})
 
@@ -701,13 +721,12 @@ var _ = Describe("Team", func() {
 
 	Describe("Updating Auth", func() {
 		var (
-			authProvider map[string]*json.RawMessage
+			authProvider map[string][]string
 		)
 
 		BeforeEach(func() {
-			data := []byte(`{"credit_card":"please"}`)
-			authProvider = map[string]*json.RawMessage{
-				"fake-provider": (*json.RawMessage)(&data),
+			authProvider = map[string][]string{
+				"users": []string{"local:username"},
 			}
 		})
 
@@ -722,6 +741,18 @@ var _ = Describe("Team", func() {
 			It("saves github auth team info without over writing the basic auth", func() {
 				err := team.UpdateProviderAuth(authProvider)
 				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("resets legacy_auth to NULL", func() {
+				oldLegacyAuth := `{"basicauth": {"username": "u", "password": "p"}}`
+				_, err := dbConn.Exec("UPDATE teams SET legacy_auth = $1 WHERE id = $2", oldLegacyAuth, team.ID())
+				team.UpdateProviderAuth(authProvider)
+				var newLegacyAuth sql.NullString
+				err = dbConn.QueryRow("SELECT legacy_auth FROM teams WHERE id = $1", team.ID()).Scan(&newLegacyAuth)
+				Expect(err).ToNot(HaveOccurred())
+				value, err := newLegacyAuth.Value()
+				Expect(err).ToNot(HaveOccurred())
+				Expect(value).To(BeNil())
 			})
 		})
 	})
@@ -1961,8 +1992,7 @@ var _ = Describe("Team", func() {
 		var (
 			containerMetadata db.ContainerMetadata
 			team              db.Team
-			fakeOwner         *dbfakes.FakeContainerOwner
-			build             db.Build
+			containerOwner    db.ContainerOwner
 
 			foundCreatingContainer db.CreatingContainer
 			foundCreatedContainer  db.CreatedContainer
@@ -1980,22 +2010,8 @@ var _ = Describe("Team", func() {
 				StepName: "some-task",
 			}
 
-			var err error
-			build, err = defaultTeam.CreateOneOffBuild()
-			Expect(err).ToNot(HaveOccurred())
-
-			fakeOwner = new(dbfakes.FakeContainerOwner)
-			fakeOwner.FindReturns(sq.Eq{
-				"build_id": build.ID(),
-				"plan_id":  "simple-plan",
-			}, true, nil)
-			fakeOwner.CreateReturns(map[string]interface{}{
-				"build_id": build.ID(),
-				"plan_id":  "simple-plan",
-			}, nil)
-
 			team = defaultTeam
-			_, err = team.SaveWorker(atc.Worker{
+			_, err := team.SaveWorker(atc.Worker{
 				Name:      "fake-worker",
 				Team:      "default-team",
 				StartTime: 1501703719,
@@ -2019,12 +2035,12 @@ var _ = Describe("Team", func() {
 			)
 			Expect(err).ToNot(HaveOccurred())
 
-			_ = db.NewResourceConfigCheckSessionContainerOwner(resourceConfigCheckSession, team.ID())
+			containerOwner = db.NewResourceConfigCheckSessionContainerOwner(resourceConfigCheckSession, team.ID())
 		})
 
 		JustBeforeEach(func() {
 			var err error
-			foundCreatingContainer, foundCreatedContainer, err = team.FindContainerOnWorker(defaultWorker.Name(), fakeOwner)
+			foundCreatingContainer, foundCreatedContainer, err = team.FindContainerOnWorker(defaultWorker.Name(), containerOwner)
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -2033,7 +2049,7 @@ var _ = Describe("Team", func() {
 
 			BeforeEach(func() {
 				var err error
-				creatingContainer, err = defaultTeam.CreateContainer(defaultWorker.Name(), fakeOwner, containerMetadata)
+				creatingContainer, err = defaultTeam.CreateContainer(defaultWorker.Name(), containerOwner, containerMetadata)
 				Expect(err).ToNot(HaveOccurred())
 			})
 
@@ -2072,6 +2088,38 @@ var _ = Describe("Team", func() {
 					It("does not find it", func() {
 						Expect(foundCreatingContainer).To(BeNil())
 						Expect(foundCreatedContainer).To(BeNil())
+					})
+				})
+			})
+
+			Context("when the creating container is failed and gced", func() {
+				BeforeEach(func() {
+					var err error
+					_, err = creatingContainer.Failed()
+					Expect(err).ToNot(HaveOccurred())
+
+					containerRepository := db.NewContainerRepository(dbConn)
+					containersDestroyed, err := containerRepository.DestroyFailedContainers()
+					Expect(containersDestroyed).To(Equal(1))
+					Expect(err).ToNot(HaveOccurred())
+
+					var checkSessions int
+					err = dbConn.QueryRow("SELECT COUNT(*) FROM worker_resource_config_check_sessions").Scan(&checkSessions)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(checkSessions).To(Equal(1))
+				})
+
+				Context("and we create a new container", func() {
+					BeforeEach(func() {
+						_, err := defaultTeam.CreateContainer(defaultWorker.Name(), containerOwner, containerMetadata)
+						Expect(err).ToNot(HaveOccurred())
+					})
+
+					It("does not duplicate the worker resource config check session", func() {
+						var checkSessions int
+						err := dbConn.QueryRow("SELECT COUNT(*) FROM worker_resource_config_check_sessions").Scan(&checkSessions)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(checkSessions).To(Equal(1))
 					})
 				})
 			})

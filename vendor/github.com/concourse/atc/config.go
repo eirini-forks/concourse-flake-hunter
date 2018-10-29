@@ -51,12 +51,14 @@ func (groups GroupConfigs) Lookup(name string) (GroupConfig, bool) {
 }
 
 type ResourceConfig struct {
-	Name         string `yaml:"name" json:"name" mapstructure:"name"`
-	WebhookToken string `yaml:"webhook_token,omitempty" json:"webhook_token" mapstructure:"webhook_token"`
-	Type         string `yaml:"type" json:"type" mapstructure:"type"`
-	Source       Source `yaml:"source" json:"source" mapstructure:"source"`
-	CheckEvery   string `yaml:"check_every,omitempty" json:"check_every" mapstructure:"check_every"`
-	Tags         Tags   `yaml:"tags,omitempty" json:"tags" mapstructure:"tags"`
+	Name         string  `yaml:"name" json:"name" mapstructure:"name"`
+	WebhookToken string  `yaml:"webhook_token,omitempty" json:"webhook_token" mapstructure:"webhook_token"`
+	Type         string  `yaml:"type" json:"type" mapstructure:"type"`
+	Source       Source  `yaml:"source" json:"source" mapstructure:"source"`
+	CheckEvery   string  `yaml:"check_every,omitempty" json:"check_every" mapstructure:"check_every"`
+	CheckTimeout string  `yaml:"check_timeout,omitempty" json:"check_timeout" mapstructure:"check_timeout"`
+	Tags         Tags    `yaml:"tags,omitempty" json:"tags" mapstructure:"tags"`
+	Version      Version `yaml:"version,omitempty" json:"version" mapstructure:"version"`
 }
 
 type ResourceType struct {
@@ -64,6 +66,7 @@ type ResourceType struct {
 	Type       string `yaml:"type" json:"type" mapstructure:"type"`
 	Source     Source `yaml:"source" json:"source" mapstructure:"source"`
 	Privileged bool   `yaml:"privileged,omitempty" json:"privileged" mapstructure:"privileged"`
+	CheckEvery string `yaml:"check_every,omitempty" json:"check_every" mapstructure:"check_every"`
 	Tags       Tags   `yaml:"tags,omitempty" json:"tags" mapstructure:"tags"`
 	Params     Params `yaml:"params,omitempty" json:"params" mapstructure:"params"`
 }

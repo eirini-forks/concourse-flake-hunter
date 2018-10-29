@@ -172,4 +172,52 @@ var _ = Describe("Destroyer", func() {
 			})
 		})
 	})
+
+	Describe("Find Orphan Volumes as Destroying", func() {
+		var (
+			FindErr    error
+			workerName string
+			handles    []string
+		)
+		JustBeforeEach(func() {
+			handles, FindErr = destroyer.FindDestroyingVolumesForGc(workerName)
+		})
+
+		Context("when orphaned volumes are returned", func() {
+			BeforeEach(func() {
+				workerName = "some-worker"
+				fakeVolumeRepository.GetDestroyingVolumesReturns(nil, nil)
+			})
+
+			It("succeed", func() {
+				Expect(FindErr).NotTo(HaveOccurred())
+				Expect(len(handles)).To(Equal(0))
+				Expect(fakeVolumeRepository.GetDestroyingVolumesCallCount()).To(Equal(1))
+			})
+		})
+
+		Context("there are volumes returned", func() {
+			BeforeEach(func() {
+				workerName = "some-worker"
+				handles = []string{"volume-1", "volume-2"}
+
+				fakeVolumeRepository.GetDestroyingVolumesReturns(handles, nil)
+			})
+
+			It("returned list of both destroyed handles", func() {
+				Expect(FindErr).NotTo(HaveOccurred())
+				Expect(len(handles)).To(Equal(2))
+				Expect(fakeVolumeRepository.GetDestroyingVolumesCallCount()).To(Equal(1))
+			})
+		})
+
+		Context("there is error in the volumes repository call", func() {
+			BeforeEach(func() {
+				fakeVolumeRepository.GetDestroyingVolumesReturns([]string{}, errors.New("some-bad-err"))
+			})
+			It("returns an error", func() {
+				Expect(FindErr).To(HaveOccurred())
+			})
+		})
+	})
 })

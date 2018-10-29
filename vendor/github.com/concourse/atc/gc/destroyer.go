@@ -12,6 +12,7 @@ import (
 
 // Destroyer allows the caller to remove containers and volumes
 type Destroyer interface {
+	FindDestroyingVolumesForGc(workerName string) ([]string, error)
 	DestroyContainers(workerName string, handles []string) error
 	DestroyVolumes(workerName string, handles []string) error
 }
@@ -45,9 +46,7 @@ func (d *destroyer) DestroyContainers(workerName string, currentHandles []string
 				return err
 			}
 
-			for i := 0; i < deleted; i++ {
-				metric.ContainersDeleted.Inc()
-			}
+			metric.ContainersDeleted.IncDelta(deleted)
 		}
 		return nil
 	}
@@ -68,9 +67,7 @@ func (d *destroyer) DestroyVolumes(workerName string, currentHandles []string) e
 				return err
 			}
 
-			for i := 0; i < deleted; i++ {
-				metric.VolumesDeleted.Inc()
-			}
+			metric.VolumesDeleted.IncDelta(deleted)
 		}
 		return nil
 	}
@@ -79,4 +76,24 @@ func (d *destroyer) DestroyVolumes(workerName string, currentHandles []string) e
 	d.logger.Error("failed-to-destroy-volumes", err)
 
 	return err
+}
+
+func (d *destroyer) FindDestroyingVolumesForGc(workerName string) ([]string, error) {
+	destroyingVolumesHandles, err := d.volumeRepository.GetDestroyingVolumes(workerName)
+	if err != nil {
+		d.logger.Error("failed-to-get-orphaned-volumes", err)
+		return nil, err
+	}
+
+	if len(destroyingVolumesHandles) > 0 {
+		d.logger.Debug("found-orphaned-volumes", lager.Data{
+			"destroying": len(destroyingVolumesHandles),
+		})
+	}
+
+	metric.DestroyingVolumesToBeGarbageCollected{
+		Volumes: len(destroyingVolumesHandles),
+	}.Emit(d.logger)
+
+	return destroyingVolumesHandles, nil
 }

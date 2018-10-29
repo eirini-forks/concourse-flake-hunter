@@ -3,6 +3,7 @@ package db_test
 import (
 	"os"
 	"testing"
+	"time"
 
 	"code.cloudfoundry.org/lager/lagertest"
 	sq "github.com/Masterminds/squirrel"
@@ -37,7 +38,6 @@ var (
 	resourceConfigCheckSessionFactory   db.ResourceConfigCheckSessionFactory
 	resourceConfigFactory               db.ResourceConfigFactory
 	resourceCacheFactory                db.ResourceCacheFactory
-	baseResourceTypeFactory             db.BaseResourceTypeFactory
 	workerBaseResourceTypeFactory       db.WorkerBaseResourceTypeFactory
 	workerTaskCacheFactory              db.WorkerTaskCacheFactory
 
@@ -45,6 +45,8 @@ var (
 	defaultTeam               db.Team
 	defaultWorkerPayload      atc.Worker
 	defaultWorker             db.Worker
+	otherWorker               db.Worker
+	otherWorkerPayload        atc.Worker
 	defaultResourceType       db.ResourceType
 	defaultResource           db.Resource
 	defaultPipeline           db.Pipeline
@@ -90,7 +92,7 @@ var _ = BeforeEach(func() {
 
 	lockFactory = lock.NewLockFactory(postgresRunner.OpenSingleton())
 
-	buildFactory = db.NewBuildFactory(dbConn, lockFactory)
+	buildFactory = db.NewBuildFactory(dbConn, lockFactory, 5*time.Minute)
 	volumeRepository = db.NewVolumeRepository(dbConn)
 	containerRepository = db.NewContainerRepository(dbConn)
 	teamFactory = db.NewTeamFactory(dbConn, lockFactory)
@@ -99,8 +101,7 @@ var _ = BeforeEach(func() {
 	resourceConfigCheckSessionLifecycle = db.NewResourceConfigCheckSessionLifecycle(dbConn)
 	resourceConfigCheckSessionFactory = db.NewResourceConfigCheckSessionFactory(dbConn, lockFactory)
 	resourceConfigFactory = db.NewResourceConfigFactory(dbConn, lockFactory)
-	resourceCacheFactory = db.NewResourceCacheFactory(dbConn)
-	baseResourceTypeFactory = db.NewBaseResourceTypeFactory(dbConn)
+	resourceCacheFactory = db.NewResourceCacheFactory(dbConn, lockFactory)
 	workerBaseResourceTypeFactory = db.NewWorkerBaseResourceTypeFactory(dbConn)
 	workerTaskCacheFactory = db.NewWorkerTaskCacheFactory(dbConn)
 
@@ -124,7 +125,16 @@ var _ = BeforeEach(func() {
 		CertsPath:       &certsPath,
 	}
 
+	otherWorkerPayload = atc.Worker{
+		ResourceTypes:   []atc.WorkerResourceType{defaultWorkerResourceType},
+		Name:            "other-worker",
+		GardenAddr:      "2.3.4.5:7777",
+		BaggageclaimURL: "6.7.8.9:7878",
+		CertsPath:       &certsPath,
+	}
+
 	defaultWorker, err = workerFactory.SaveWorker(defaultWorkerPayload, 0)
+	otherWorker, err = workerFactory.SaveWorker(otherWorkerPayload, 0)
 	Expect(err).NotTo(HaveOccurred())
 
 	defaultPipeline, _, err = defaultTeam.SavePipeline("default-pipeline", atc.Config{

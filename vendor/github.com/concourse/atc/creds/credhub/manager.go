@@ -1,14 +1,15 @@
 package credhub
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/url"
+	"sync"
 
+	"code.cloudfoundry.org/credhub-cli/credhub"
+	"code.cloudfoundry.org/credhub-cli/credhub/auth"
 	"code.cloudfoundry.org/lager"
-
-	"github.com/cloudfoundry-incubator/credhub-cli/credhub"
-	"github.com/cloudfoundry-incubator/credhub-cli/credhub/auth"
 	"github.com/concourse/atc/creds"
 )
 
@@ -17,17 +18,74 @@ type CredHubManager struct {
 
 	PathPrefix string `long:"path-prefix" default:"/concourse" description:"Path under which to namespace credential lookup."`
 
-	TLS struct {
-		CACerts    []string `long:"ca-cert"              description:"Paths to PEM-encoded CA cert files to use to verify the CredHub server SSL cert."`
-		ClientCert string   `long:"client-cert"          description:"Path to the client certificate for mutual TLS authorization."`
-		ClientKey  string   `long:"client-key"           description:"Path to the client private key for mutual TLS authorization."`
-		Insecure   bool     `long:"insecure-skip-verify" description:"Enable insecure SSL verification."`
+	TLS    TLS
+	UAA    UAA
+	Client *LazyCredhub
+}
+
+type TLS struct {
+	CACerts    []string `long:"ca-cert"              description:"Paths to PEM-encoded CA cert files to use to verify the CredHub server SSL cert."`
+	ClientCert string   `long:"client-cert"          description:"Path to the client certificate for mutual TLS authorization."`
+	ClientKey  string   `long:"client-key"           description:"Path to the client private key for mutual TLS authorization."`
+	Insecure   bool     `long:"insecure-skip-verify" description:"Enable insecure SSL verification."`
+}
+
+type UAA struct {
+	ClientId     string `long:"client-id"     description:"Client ID for CredHub authorization."`
+	ClientSecret string `long:"client-secret" description:"Client secret for CredHub authorization."`
+}
+
+func (manager *CredHubManager) MarshalJSON() ([]byte, error) {
+	health, err := manager.Health()
+	if err != nil {
+		return nil, err
 	}
 
-	UAA struct {
-		ClientId     string `long:"client-id"     description:"Client ID for CredHub authorization."`
-		ClientSecret string `long:"client-secret" description:"Client secret for CredHub authorization."`
+	response := map[string]interface{}{
+		"url":           manager.URL,
+		"path_prefix":   manager.PathPrefix,
+		"ca_certs":      manager.TLS.CACerts,
+		"uaa_client_id": manager.UAA.ClientId,
+		"health":        health,
 	}
+
+	return json.Marshal(&response)
+}
+
+func (manager *CredHubManager) Init(log lager.Logger) error {
+	var options []credhub.Option
+	if manager.TLS.Insecure {
+		options = append(options, credhub.SkipTLSValidation(true))
+	}
+
+	caCerts := []string{}
+	for _, cert := range manager.TLS.CACerts {
+		contents, err := ioutil.ReadFile(cert)
+		if err != nil {
+			return err
+		}
+
+		caCerts = append(caCerts, string(contents))
+	}
+
+	if len(caCerts) > 0 {
+		options = append(options, credhub.CaCerts(caCerts...))
+	}
+
+	if manager.UAA.ClientId != "" && manager.UAA.ClientSecret != "" {
+		options = append(options, credhub.Auth(auth.UaaClientCredentials(
+			manager.UAA.ClientId,
+			manager.UAA.ClientSecret,
+		)))
+	}
+
+	if manager.TLS.ClientCert != "" && manager.TLS.ClientKey != "" {
+		options = append(options, credhub.ClientCert(manager.TLS.ClientCert, manager.TLS.ClientKey))
+	}
+
+	manager.Client = newLazyCredhub(manager.URL, options)
+
+	return nil
 }
 
 func (manager CredHubManager) IsConfigured() bool {
@@ -54,55 +112,63 @@ func (manager CredHubManager) Validate() error {
 	return nil
 }
 
-func (manager CredHubManager) NewVariablesFactory(logger lager.Logger) (creds.VariablesFactory, error) {
-	var options []credhub.Option
-
-	if manager.TLS.Insecure {
-		options = append(options, credhub.SkipTLSValidation(true))
+func (manager CredHubManager) Health() (*creds.HealthResponse, error) {
+	healthResponse := &creds.HealthResponse{
+		Method: "/health",
 	}
 
-	caCerts := []string{}
-	for _, cert := range manager.TLS.CACerts {
-		contents, err := ioutil.ReadFile(cert)
-		if err != nil {
-			return nil, err
-		}
-
-		caCerts = append(caCerts, string(contents))
+	credhubObject, err := manager.Client.CredHub()
+	if err != nil {
+		return healthResponse, err
 	}
 
-	if len(caCerts) > 0 {
-		options = append(options, credhub.CaCerts(caCerts...))
+	response, err := credhubObject.Client().Get(manager.URL + "/health")
+	if err != nil {
+		healthResponse.Error = err.Error()
+		return healthResponse, nil
 	}
 
-	if manager.UAA.ClientId != "" && manager.UAA.ClientSecret != "" {
-		options = append(options, credhub.Auth(auth.UaaClientCredentials(
-			manager.UAA.ClientId,
-			manager.UAA.ClientSecret,
-		)))
+	if response.StatusCode < 200 || response.StatusCode > 299 {
+		healthResponse.Error = "not ok"
+		return healthResponse, nil
 	}
 
-	if manager.TLS.ClientCert != "" && manager.TLS.ClientKey != "" {
-		options = append(options, credhub.ClientCert(manager.TLS.ClientCert, manager.TLS.ClientKey))
+	var credhubHealth struct {
+		Status string `json:"status"`
 	}
 
-	return NewCredHubFactory(logger, newLazyCredhub(manager.URL, options), manager.PathPrefix), nil
+	defer response.Body.Close()
+	err = json.NewDecoder(response.Body).Decode(&credhubHealth)
+	if err != nil {
+		return nil, err
+	}
+
+	healthResponse.Response = credhubHealth
+
+	return healthResponse, nil
 }
 
-type lazyCredhub struct {
+func (manager CredHubManager) NewVariablesFactory(logger lager.Logger) (creds.VariablesFactory, error) {
+	return NewCredHubFactory(logger, manager.Client, manager.PathPrefix), nil
+}
+
+type LazyCredhub struct {
 	url     string
 	options []credhub.Option
 	credhub *credhub.CredHub
+	mu      sync.Mutex
 }
 
-func newLazyCredhub(url string, options []credhub.Option) lazyCredhub {
-	return lazyCredhub{
+func newLazyCredhub(url string, options []credhub.Option) *LazyCredhub {
+	return &LazyCredhub{
 		url:     url,
 		options: options,
 	}
 }
 
-func (lc lazyCredhub) CredHub() (*credhub.CredHub, error) {
+func (lc *LazyCredhub) CredHub() (*credhub.CredHub, error) {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
 	if lc.credhub != nil {
 		return lc.credhub, nil
 	}

@@ -47,6 +47,8 @@ type Job interface {
 	SetMaxInFlightReached(bool) error
 	GetRunningBuildsBySerialGroup(serialGroups []string) ([]Build, error)
 	GetNextPendingBuildBySerialGroup(serialGroups []string) (Build, bool, error)
+
+	ClearTaskCache(string, string) (int64, error)
 }
 
 var jobsQuery = psql.Select("j.id", "j.name", "j.config", "j.paused", "j.first_logged_build_id", "j.pipeline_id", "p.name", "p.team_id", "t.name", "j.nonce", "array_to_json(j.tags)").
@@ -568,17 +570,53 @@ func (j *job) CreateBuild() (Build, error) {
 		return nil, err
 	}
 
+	err = updateNextBuildForJob(tx, j.id)
+	if err != nil {
+		return nil, err
+	}
+
 	err = tx.Commit()
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = j.conn.Exec(`REFRESH MATERIALIZED VIEW CONCURRENTLY next_builds_per_job`)
+	return build, nil
+}
+
+func (j *job) ClearTaskCache(stepName string, cachePath string) (int64, error) {
+	tx, err := j.conn.Begin()
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	return build, nil
+	defer Rollback(tx)
+
+	var sqlBuilder sq.DeleteBuilder
+	sqlBuilder = psql.Delete("worker_task_caches").
+		Where(sq.Eq{
+			"job_id":    j.id,
+			"step_name": stepName,
+		})
+
+	if len(cachePath) > 0 {
+		sqlBuilder = sqlBuilder.Where(sq.Eq{"path": cachePath})
+	}
+
+	sqlResult, err := sqlBuilder.
+		RunWith(tx).
+		Exec()
+
+	if err != nil {
+		return 0, err
+	}
+
+	rowsDeleted, err := sqlResult.RowsAffected()
+
+	if err != nil {
+		return 0, err
+	}
+
+	return rowsDeleted, tx.Commit()
 }
 
 func (j *job) updateSerialGroups(serialGroups []string) error {
@@ -790,13 +828,8 @@ func (j *job) nextBuild() (Build, error) {
 	var next Build
 
 	row := buildsQuery.
-		Where(sq.Eq{
-			"j.name":        j.name,
-			"j.pipeline_id": j.pipelineID,
-			"b.status":      []BuildStatus{BuildStatusPending, BuildStatusStarted},
-		}).
-		OrderBy("b.id ASC").
-		Limit(1).
+		Where(sq.Eq{"j.id": j.id}).
+		Where(sq.Expr("b.id = j.next_build_id")).
 		RunWith(j.conn).
 		QueryRow()
 
@@ -815,13 +848,8 @@ func (j *job) finishedBuild() (Build, error) {
 	var finished Build
 
 	row := buildsQuery.
-		Where(sq.Eq{
-			"j.name":        j.name,
-			"j.pipeline_id": j.pipelineID,
-		}).
-		Where(sq.Expr("b.status NOT IN ('pending', 'started')")).
-		OrderBy("b.id DESC").
-		Limit(1).
+		Where(sq.Eq{"j.id": j.id}).
+		Where(sq.Expr("b.id = j.latest_completed_build_id")).
 		RunWith(j.conn).
 		QueryRow()
 

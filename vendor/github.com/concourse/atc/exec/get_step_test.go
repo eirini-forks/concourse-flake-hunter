@@ -112,9 +112,13 @@ var _ = Describe("GetStep", func() {
 			VersionedResourceTypes: resourceTypes,
 		}
 
-		factory = exec.NewGardenFactory(fakeWorkerClient, fakeResourceFetcher, fakeResourceFactory, fakeDBResourceCacheFactory, fakeVariablesFactory)
+		factory = exec.NewGardenFactory(fakeWorkerClient, fakeResourceFetcher, fakeResourceFactory, fakeDBResourceCacheFactory, fakeVariablesFactory, atc.ContainerLimits{})
 
 		fakeDelegate = new(execfakes.FakeGetDelegate)
+	})
+
+	AfterEach(func() {
+		cancel()
 	})
 
 	JustBeforeEach(func() {

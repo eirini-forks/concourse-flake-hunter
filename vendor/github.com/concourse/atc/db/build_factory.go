@@ -2,6 +2,8 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
+	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/concourse/atc/db/lock"
@@ -14,19 +16,22 @@ type BuildFactory interface {
 	VisibleBuilds([]string, Page) ([]Build, Pagination, error)
 	PublicBuilds(Page) ([]Build, Pagination, error)
 	GetAllStartedBuilds() ([]Build, error)
+	GetDrainableBuilds() ([]Build, error)
 	// TODO: move to BuildLifecycle, new interface (see WorkerLifecycle)
 	MarkNonInterceptibleBuilds() error
 }
 
 type buildFactory struct {
-	conn        Conn
-	lockFactory lock.LockFactory
+	conn              Conn
+	lockFactory       lock.LockFactory
+	oneOffGracePeriod time.Duration
 }
 
-func NewBuildFactory(conn Conn, lockFactory lock.LockFactory) BuildFactory {
+func NewBuildFactory(conn Conn, lockFactory lock.LockFactory, oneOffGracePeriod time.Duration) BuildFactory {
 	return &buildFactory{
-		conn:        conn,
-		lockFactory: lockFactory,
+		conn:              conn,
+		lockFactory:       lockFactory,
+		oneOffGracePeriod: oneOffGracePeriod,
 	}
 }
 
@@ -67,24 +72,18 @@ func (f *buildFactory) PublicBuilds(page Page) ([]Build, Pagination, error) {
 }
 
 func (f *buildFactory) MarkNonInterceptibleBuilds() error {
-	latestBuildsPrefix := `WITH
-		latest_builds AS (
-			SELECT COALESCE(MAX(b.id)) AS build_id
-			FROM builds b, jobs j
-			WHERE b.job_id = j.id
-			AND b.completed
-			GROUP BY j.id
-		)`
-
-	_, err := psql.Update("builds").
-		Prefix(latestBuildsPrefix).
+	_, err := psql.Update("builds b").
 		Set("interceptible", false).
 		Where(sq.Eq{
 			"completed":     true,
 			"interceptible": true,
 		}).
 		Where(sq.Or{
-			sq.Expr("id NOT IN (select build_id FROM latest_builds)"),
+			sq.NotEq{"job_id": nil},
+			sq.Expr(fmt.Sprintf("now() - end_time > '%d seconds'::interval", int(f.oneOffGracePeriod.Seconds()))),
+		}).
+		Where(sq.Or{
+			sq.Expr("NOT EXISTS (SELECT 1 FROM jobs j WHERE j.latest_completed_build_id = b.id)"),
 			sq.Eq{"status": string(BuildStatusSucceeded)},
 		}).
 		RunWith(f.conn).
@@ -92,11 +91,25 @@ func (f *buildFactory) MarkNonInterceptibleBuilds() error {
 	return err
 }
 
+func (f *buildFactory) GetDrainableBuilds() ([]Build, error) {
+	query := buildsQuery.Where(sq.Eq{
+		"b.completed": true,
+		"b.drained":   false,
+	})
+
+	return getBuilds(query, f.conn, f.lockFactory)
+}
+
 func (f *buildFactory) GetAllStartedBuilds() ([]Build, error) {
-	rows, err := buildsQuery.
-		Where(sq.Eq{"b.status": BuildStatusStarted}).
-		RunWith(f.conn).
-		Query()
+	query := buildsQuery.Where(sq.Eq{
+		"b.status": BuildStatusStarted,
+	})
+
+	return getBuilds(query, f.conn, f.lockFactory)
+}
+
+func getBuilds(buildsQuery sq.SelectBuilder, conn Conn, lockFactory lock.LockFactory) ([]Build, error) {
+	rows, err := buildsQuery.RunWith(conn).Query()
 	if err != nil {
 		return nil, err
 	}
@@ -106,8 +119,8 @@ func (f *buildFactory) GetAllStartedBuilds() ([]Build, error) {
 	bs := []Build{}
 
 	for rows.Next() {
-		b := &build{conn: f.conn, lockFactory: f.lockFactory}
-		err := scanBuild(b, rows, f.conn.EncryptionStrategy())
+		b := &build{conn: conn, lockFactory: lockFactory}
+		err := scanBuild(b, rows, conn.EncryptionStrategy())
 		if err != nil {
 			return nil, err
 		}

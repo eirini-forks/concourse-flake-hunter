@@ -2,6 +2,7 @@ package fly
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/concourse/atc"
 	"github.com/concourse/atc/event"
+	"github.com/concourse/fly/rc"
 	"github.com/concourse/go-concourse/concourse"
 	"golang.org/x/oauth2"
 )
@@ -99,46 +101,44 @@ func (c *client) concourseClient() (concourse.Client, error) {
 		return c.concourseCli, nil
 	}
 
-	httpClient := &http.Client{
-		Transport: basicAuthTransport{
-			username: c.username,
-			password: c.password,
-			base:     transport(),
-		},
-	}
-
-	client := concourse.NewClient(c.concourseURL, httpClient, false)
-	t := client.Team(c.team)
-	token, err := t.AuthToken()
+	token, err := c.getAuthToken()
 	if err != nil {
-		return nil, fmt.Errorf("failed to authenticate to team: %s", err)
+		return nil, fmt.Errorf("Failed to get token: %v", err)
 	}
 
-	oAuthToken := &oauth2.Token{
-		TokenType:   token.Type,
-		AccessToken: token.Value,
-	}
-
-	transport := transport()
-	transport = &oauth2.Transport{
-		Source: oauth2.StaticTokenSource(oAuthToken),
-		Base:   transport,
+	transport := &oauth2.Transport{
+		Source: oauth2.StaticTokenSource(token),
+		Base:   transport(),
 	}
 
 	c.concourseCli = concourse.NewClient(c.concourseURL, &http.Client{Transport: transport}, false)
 	return c.concourseCli, nil
 }
 
-type basicAuthTransport struct {
-	username string
-	password string
+func (c *client) getAuthToken() (*oauth2.Token, error) {
+	target, err := rc.NewUnauthenticatedTarget(
+		"concourse-flake-hunter",
+		c.concourseURL,
+		c.team,
+		true,
+		"",
+		false,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create target %s", err)
+	}
+	client := target.Client()
 
-	base http.RoundTripper
-}
+	oauth2Config := oauth2.Config{
+		ClientID:     "fly",
+		ClientSecret: "Zmx5",
+		Endpoint:     oauth2.Endpoint{TokenURL: client.URL() + "/sky/token"},
+		Scopes:       []string{"openid", "profile", "email", "federated:id", "groups"},
+	}
 
-func (t basicAuthTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	r.SetBasicAuth(t.username, t.password)
-	return t.base.RoundTrip(r)
+	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, client.HTTPClient())
+
+	return oauth2Config.PasswordCredentialsToken(ctx, c.username, c.password)
 }
 
 func transport() http.RoundTripper {

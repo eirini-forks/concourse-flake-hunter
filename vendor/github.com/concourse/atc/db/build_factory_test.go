@@ -43,8 +43,31 @@ var _ = Describe("BuildFactory", func() {
 
 	Describe("MarkNonInterceptibleBuilds", func() {
 		Context("one-off builds", func() {
-			DescribeTable("completed builds",
+			DescribeTable("completed and within grace period",
 				func(status db.BuildStatus, matcher types.GomegaMatcher) {
+					b, err := defaultTeam.CreateOneOffBuild()
+					Expect(err).NotTo(HaveOccurred())
+
+					var i bool
+					err = b.Finish(status)
+					Expect(err).NotTo(HaveOccurred())
+
+					err = buildFactory.MarkNonInterceptibleBuilds()
+					Expect(err).NotTo(HaveOccurred())
+
+					i, err = b.Interceptible()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(i).To(matcher)
+				},
+				Entry("succeeded is interceptible", db.BuildStatusSucceeded, BeTrue()),
+				Entry("aborted is interceptible", db.BuildStatusAborted, BeTrue()),
+				Entry("errored is interceptible", db.BuildStatusErrored, BeTrue()),
+				Entry("failed is interceptible", db.BuildStatusFailed, BeTrue()),
+			)
+			DescribeTable("completed and past the grace period",
+				func(status db.BuildStatus, matcher types.GomegaMatcher) {
+					//set grace period to 0 for this test
+					buildFactory = db.NewBuildFactory(dbConn, lockFactory, 0)
 					b, err := defaultTeam.CreateOneOffBuild()
 					Expect(err).NotTo(HaveOccurred())
 
@@ -275,6 +298,60 @@ var _ = Describe("BuildFactory", func() {
 
 			Expect(builds).To(HaveLen(1))
 			Expect(builds).To(ConsistOf(publicBuild))
+		})
+	})
+
+	Describe("GetDrainableBuilds", func() {
+		var build2DB, build3DB, build4DB db.Build
+
+		BeforeEach(func() {
+			pipeline, _, err := team.SavePipeline("other-pipeline", atc.Config{
+				Jobs: atc.JobConfigs{
+					{
+						Name: "some-job",
+					},
+				},
+			}, db.ConfigVersion(0), db.PipelineUnpaused)
+			Expect(err).NotTo(HaveOccurred())
+
+			job, found, err := pipeline.Job("some-job")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+
+			_, err = team.CreateOneOffBuild()
+			Expect(err).NotTo(HaveOccurred())
+
+			build2DB, err = team.CreateOneOffBuild()
+			Expect(err).NotTo(HaveOccurred())
+
+			build3DB, err = job.CreateBuild()
+			Expect(err).NotTo(HaveOccurred())
+
+			build4DB, err = job.CreateBuild()
+			Expect(err).NotTo(HaveOccurred())
+
+			started, err := build2DB.Start("some-engine", `{"so":"meta"}`, atc.Plan{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(started).To(BeTrue())
+
+			err = build3DB.Finish("succeeded")
+			Expect(err).NotTo(HaveOccurred())
+
+			err = build3DB.SetDrained(true)
+			Expect(err).NotTo(HaveOccurred())
+
+			err = build4DB.Finish("failed")
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("returns all builds that have been completed and not drained", func() {
+			builds, err := buildFactory.GetDrainableBuilds()
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = build4DB.Reload()
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(builds).To(ConsistOf(build4DB))
 		})
 	})
 

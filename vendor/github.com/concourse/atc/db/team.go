@@ -27,7 +27,7 @@ type Team interface {
 	Name() string
 	Admin() bool
 
-	Auth() map[string]*json.RawMessage
+	Auth() map[string][]string
 
 	Delete() error
 	Rename(string) error
@@ -64,7 +64,7 @@ type Team interface {
 	FindContainerOnWorker(workerName string, owner ContainerOwner) (CreatingContainer, CreatedContainer, error)
 	CreateContainer(workerName string, owner ContainerOwner, meta ContainerMetadata) (CreatingContainer, error)
 
-	UpdateProviderAuth(auth map[string]*json.RawMessage) error
+	UpdateProviderAuth(auth map[string][]string) error
 }
 
 type team struct {
@@ -75,43 +75,24 @@ type team struct {
 	name  string
 	admin bool
 
-	auth map[string]*json.RawMessage
+	auth map[string][]string
 }
 
 func (t *team) ID() int      { return t.id }
 func (t *team) Name() string { return t.name }
 func (t *team) Admin() bool  { return t.admin }
 
-func (t *team) Auth() map[string]*json.RawMessage { return t.auth }
+func (t *team) Auth() map[string][]string { return t.auth }
 
 func (t *team) Delete() error {
-	tx, err := t.conn.Begin()
-	if err != nil {
-		return err
-	}
-
-	defer Rollback(tx)
-
-	_, err = psql.Delete("teams").
+	_, err := psql.Delete("teams").
 		Where(sq.Eq{
 			"name": t.name,
 		}).
-		RunWith(tx).
+		RunWith(t.conn).
 		Exec()
 
-	if err != nil {
-		return err
-	}
-
-	teamBuildEvents := fmt.Sprintf("team_build_events_%d", int64(t.id))
-	_, err = psql.Delete(teamBuildEvents).
-		RunWith(tx).
-		Exec()
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
+	return err
 }
 
 func (t *team) Rename(name string) error {
@@ -343,7 +324,7 @@ func (t *team) FindCheckContainers(logger lager.Logger, pipelineName string, res
 		Join("worker_resource_config_check_sessions wrccs ON wrccs.id = c.worker_resource_config_check_session_id").
 		Join("resource_config_check_sessions rccs ON rccs.id = wrccs.resource_config_check_session_id").
 		Where(sq.Eq{
-			"rccs.resource_config_id": resourceConfig.ID,
+			"rccs.resource_config_id": resourceConfig.ID(),
 			"c.team_id":               t.id,
 		}).
 		RunWith(t.conn).
@@ -453,28 +434,6 @@ func (t *team) SavePipeline(
 		}
 
 		created = true
-
-		_, err = tx.Exec(fmt.Sprintf(`
-			CREATE TABLE pipeline_build_events_%[1]d ()
-			INHERITS (build_events)
-		`, pipelineID))
-		if err != nil {
-			return nil, false, err
-		}
-
-		_, err = tx.Exec(fmt.Sprintf(`
-			CREATE INDEX pipeline_build_events_%[1]d_build_id ON pipeline_build_events_%[1]d (build_id)
-		`, pipelineID))
-		if err != nil {
-			return nil, false, err
-		}
-
-		_, err = tx.Exec(fmt.Sprintf(`
-			CREATE UNIQUE INDEX pipeline_build_events_%[1]d_build_id_event_id ON pipeline_build_events_%[1]d (build_id, event_id)
-		`, pipelineID))
-		if err != nil {
-			return nil, false, err
-		}
 	} else {
 		update := psql.Update("pipelines").
 			Set("groups", groupsPayload).
@@ -780,25 +739,19 @@ func (t *team) SaveWorker(atcWorker atc.Worker, ttl time.Duration) (Worker, erro
 	return savedWorker, nil
 }
 
-func (t *team) UpdateProviderAuth(auth map[string]*json.RawMessage) error {
+func (t *team) UpdateProviderAuth(auth map[string][]string) error {
 	jsonEncodedProviderAuth, err := json.Marshal(auth)
-	if err != nil {
-		return err
-	}
-
-	es := t.conn.EncryptionStrategy()
-	encryptedAuth, nonce, err := es.Encrypt(jsonEncodedProviderAuth)
 	if err != nil {
 		return err
 	}
 
 	query := `
 		UPDATE teams
-		SET auth = $1, nonce = $3
+		SET auth = $1, legacy_auth = NULL, nonce = NULL
 		WHERE id = $2
 		RETURNING id, name, admin, auth, nonce
 	`
-	params := []interface{}{string(encryptedAuth), t.id, nonce}
+	params := []interface{}{jsonEncodedProviderAuth, t.id}
 	return t.queryTeam(query, params)
 }
 
@@ -1036,19 +989,7 @@ func (t *team) queryTeam(query string, params []interface{}) error {
 	}
 
 	if providerAuth.Valid {
-		es := t.conn.EncryptionStrategy()
-
-		var noncense *string
-		if nonce.Valid {
-			noncense = &nonce.String
-		}
-
-		pAuth, err := es.Decrypt(providerAuth.String, noncense)
-		if err != nil {
-			return err
-		}
-
-		err = json.Unmarshal(pAuth, &t.auth)
+		err = json.Unmarshal([]byte(providerAuth.String), &t.auth)
 		if err != nil {
 			return err
 		}

@@ -38,7 +38,7 @@ var _ = Describe("Factory Task", func() {
 				{
 					ResourceType: atc.ResourceType{
 						Name:   "some-custom-resource",
-						Type:   "docker-image",
+						Type:   "registry-image",
 						Source: atc.Source{"some": "custom-source"},
 					},
 					Version: atc.Version{"some": "version"},
@@ -68,7 +68,7 @@ var _ = Describe("Factory Task", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				expected := expectedPlanFactory.NewPlan(atc.TaskPlan{
-					Name: "some-task",
+					Name:                   "some-task",
 					VersionedResourceTypes: resourceTypes,
 					Params:                 params,
 				})
@@ -107,7 +107,7 @@ var _ = Describe("Factory Task", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				expected := expectedPlanFactory.NewPlan(atc.TaskPlan{
-					Name: "some-task",
+					Name:                   "some-task",
 					VersionedResourceTypes: resourceTypes,
 					InputMapping: map[string]string{
 						"bosh-release": "concourse-release",
@@ -160,7 +160,7 @@ var _ = Describe("Factory Task", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				expected := expectedPlanFactory.NewPlan(atc.TaskPlan{
-					Name: "some-task",
+					Name:                   "some-task",
 					VersionedResourceTypes: resourceTypes,
 					OutputMapping: map[string]string{
 						"bosh-release": "concourse-release",

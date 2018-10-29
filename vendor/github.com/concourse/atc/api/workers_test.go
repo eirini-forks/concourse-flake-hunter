@@ -767,6 +767,7 @@ var _ = Describe("Workers API", func() {
 			fakeWorker.TagsReturns([]string{"some-tag"})
 			fakeWorker.StateReturns(db.WorkerStateRunning)
 			fakeWorker.TeamNameReturns("some-team")
+			fakeWorker.EphemeralReturns(true)
 
 			ttlStr = "30s"
 			ttl, err = time.ParseDuration(ttlStr)
@@ -812,6 +813,7 @@ var _ = Describe("Workers API", func() {
 				"active_volumes": 0,
 				"resource_types": null,
 				"platform": "penguin",
+				"ephemeral": true,
 				"tags": ["some-tag"],
 				"team": "some-team",
 				"start_time": 0,
@@ -920,6 +922,16 @@ var _ = Describe("Workers API", func() {
 			})
 			It("returns 200", func() {
 				Expect(response.StatusCode).To(Equal(http.StatusOK))
+			})
+
+			Context("when the given worker has already been deleted", func() {
+				BeforeEach(func() {
+					dbWorkerFactory.GetWorkerReturns(nil, false, nil)
+				})
+				It("returns 500", func() {
+					Expect(dbWorkerFactory.GetWorkerCallCount()).To(Equal(1))
+					Expect(response.StatusCode).To(Equal(http.StatusInternalServerError))
+				})
 			})
 
 			Context("when deleting the worker fails", func() {

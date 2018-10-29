@@ -8,6 +8,19 @@ import (
 )
 
 type FakeDestroyer struct {
+	FindDestroyingVolumesForGcStub        func(workerName string) ([]string, error)
+	findDestroyingVolumesForGcMutex       sync.RWMutex
+	findDestroyingVolumesForGcArgsForCall []struct {
+		workerName string
+	}
+	findDestroyingVolumesForGcReturns struct {
+		result1 []string
+		result2 error
+	}
+	findDestroyingVolumesForGcReturnsOnCall map[int]struct {
+		result1 []string
+		result2 error
+	}
 	DestroyContainersStub        func(workerName string, handles []string) error
 	destroyContainersMutex       sync.RWMutex
 	destroyContainersArgsForCall []struct {
@@ -34,6 +47,57 @@ type FakeDestroyer struct {
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
+}
+
+func (fake *FakeDestroyer) FindDestroyingVolumesForGc(workerName string) ([]string, error) {
+	fake.findDestroyingVolumesForGcMutex.Lock()
+	ret, specificReturn := fake.findDestroyingVolumesForGcReturnsOnCall[len(fake.findDestroyingVolumesForGcArgsForCall)]
+	fake.findDestroyingVolumesForGcArgsForCall = append(fake.findDestroyingVolumesForGcArgsForCall, struct {
+		workerName string
+	}{workerName})
+	fake.recordInvocation("FindDestroyingVolumesForGc", []interface{}{workerName})
+	fake.findDestroyingVolumesForGcMutex.Unlock()
+	if fake.FindDestroyingVolumesForGcStub != nil {
+		return fake.FindDestroyingVolumesForGcStub(workerName)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fake.findDestroyingVolumesForGcReturns.result1, fake.findDestroyingVolumesForGcReturns.result2
+}
+
+func (fake *FakeDestroyer) FindDestroyingVolumesForGcCallCount() int {
+	fake.findDestroyingVolumesForGcMutex.RLock()
+	defer fake.findDestroyingVolumesForGcMutex.RUnlock()
+	return len(fake.findDestroyingVolumesForGcArgsForCall)
+}
+
+func (fake *FakeDestroyer) FindDestroyingVolumesForGcArgsForCall(i int) string {
+	fake.findDestroyingVolumesForGcMutex.RLock()
+	defer fake.findDestroyingVolumesForGcMutex.RUnlock()
+	return fake.findDestroyingVolumesForGcArgsForCall[i].workerName
+}
+
+func (fake *FakeDestroyer) FindDestroyingVolumesForGcReturns(result1 []string, result2 error) {
+	fake.FindDestroyingVolumesForGcStub = nil
+	fake.findDestroyingVolumesForGcReturns = struct {
+		result1 []string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeDestroyer) FindDestroyingVolumesForGcReturnsOnCall(i int, result1 []string, result2 error) {
+	fake.FindDestroyingVolumesForGcStub = nil
+	if fake.findDestroyingVolumesForGcReturnsOnCall == nil {
+		fake.findDestroyingVolumesForGcReturnsOnCall = make(map[int]struct {
+			result1 []string
+			result2 error
+		})
+	}
+	fake.findDestroyingVolumesForGcReturnsOnCall[i] = struct {
+		result1 []string
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeDestroyer) DestroyContainers(workerName string, handles []string) error {
@@ -147,6 +211,8 @@ func (fake *FakeDestroyer) DestroyVolumesReturnsOnCall(i int, result1 error) {
 func (fake *FakeDestroyer) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
+	fake.findDestroyingVolumesForGcMutex.RLock()
+	defer fake.findDestroyingVolumesForGcMutex.RUnlock()
 	fake.destroyContainersMutex.RLock()
 	defer fake.destroyContainersMutex.RUnlock()
 	fake.destroyVolumesMutex.RLock()

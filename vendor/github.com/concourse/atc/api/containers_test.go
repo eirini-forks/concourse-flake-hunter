@@ -46,6 +46,7 @@ var _ = Describe("Containers API", func() {
 		fakeaccess = new(accessorfakes.FakeAccess)
 		fakeContainer1 = new(dbfakes.FakeContainer)
 		fakeContainer1.HandleReturns("some-handle")
+		fakeContainer1.StateReturns("container-state")
 		fakeContainer1.WorkerNameReturns("some-worker-name")
 		fakeContainer1.MetadataReturns(db.ContainerMetadata{
 			Type: stepType,
@@ -146,6 +147,7 @@ var _ = Describe("Containers API", func() {
 									"attempt": "1.5",
 									"pipeline_id": 1111,
 									"job_id": 2222,
+									"state": "container-state",
 									"build_id": 3333,
 									"working_directory": "/tmp/build/my-favorite-guid",
 									"user": "snoopy"
@@ -450,6 +452,7 @@ var _ = Describe("Containers API", func() {
 					Expect(body).To(MatchJSON(`
 	 					{
 	 						"id": "some-handle",
+							"state": "container-state",
 	 						"worker_name": "some-worker-name",
 	 						"type": "task",
 	 						"step_name": "some-step",

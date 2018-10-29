@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"encoding/json"
 	"errors"
 
 	"code.cloudfoundry.org/lager"
@@ -17,6 +18,19 @@ type KubernetesManager struct {
 	NamespacePrefix string `long:"namespace-prefix" default:"concourse-" description:"Prefix to use for Kubernetes namespaces under which secrets will be looked up."`
 }
 
+func (manager *KubernetesManager) MarshalJSON() ([]byte, error) {
+	// XXX: Get Health
+	return json.Marshal(&map[string]interface{}{
+		"in_cluster_config": manager.InClusterConfig,
+		"config_path":       manager.ConfigPath,
+		"namespace_config":  manager.NamespacePrefix,
+	})
+}
+
+func (manager KubernetesManager) Init(log lager.Logger) error {
+	return nil
+}
+
 func (manager KubernetesManager) IsConfigured() bool {
 	return manager.InClusterConfig || manager.ConfigPath != ""
 }
@@ -27,6 +41,10 @@ func (manager KubernetesManager) buildConfig() (*rest.Config, error) {
 	}
 
 	return clientcmd.BuildConfigFromFlags("", manager.ConfigPath)
+}
+
+func (manager KubernetesManager) Health() (*creds.HealthResponse, error) {
+	return nil, nil
 }
 
 func (manager KubernetesManager) Validate() error {

@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"errors"
 	"net/http"
 	"time"
 
@@ -16,8 +15,6 @@ import (
 
 	"github.com/concourse/atc/db"
 )
-
-var ErrDesiredWorkerNotRunning = errors.New("desired garden worker is not known to be running")
 
 type dbWorkerProvider struct {
 	lockFactory                       lock.LockFactory
@@ -149,17 +146,6 @@ func (provider *dbWorkerProvider) NewGardenWorker(logger lager.Logger, tikTok cl
 	)
 
 	gClient := gclient.New(NewRetryableConnection(gcf.BuildConnection()))
-
-	// rClient := reaper.New("", transport.NewreaperRoundTripper(
-	// 	savedWorker.Name(),
-	// 	savedWorker.ReaperAddr(),
-	// 	provider.dbWorkerFactory,
-	// 	&http.Transport{
-	// 		DisableKeepAlives:     true,
-	// 		ResponseHeaderTimeout: provider.baggageclaimResponseHeaderTimeout,
-	// 	}),
-	// 	logger,
-	// )
 
 	bClient := bclient.New("", transport.NewBaggageclaimRoundTripper(
 		savedWorker.Name(),

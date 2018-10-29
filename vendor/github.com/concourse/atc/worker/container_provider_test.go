@@ -35,18 +35,15 @@ var _ = Describe("ContainerProvider", func() {
 		fakeCreatingContainer *dbfakes.FakeCreatingContainer
 		fakeCreatedContainer  *dbfakes.FakeCreatedContainer
 
-		fakeGardenClient *gardenfakes.FakeClient
-		//fakeReaperClient            *reaperfakes.FakeReaperClient
-		fakeGardenContainer         *gardenfakes.FakeContainer
-		fakeBaggageclaimClient      *baggageclaimfakes.FakeClient
-		fakeVolumeClient            *workerfakes.FakeVolumeClient
-		fakeImageFactory            *workerfakes.FakeImageFactory
-		fakeImage                   *workerfakes.FakeImage
-		fakeDBTeam                  *dbfakes.FakeTeam
-		fakeDBVolumeRepository      *dbfakes.FakeVolumeRepository
-		fakeDBResourceCacheFactory  *dbfakes.FakeResourceCacheFactory
-		fakeDBResourceConfigFactory *dbfakes.FakeResourceConfigFactory
-		fakeLockFactory             *lockfakes.FakeLockFactory
+		fakeGardenClient       *gardenfakes.FakeClient
+		fakeGardenContainer    *gardenfakes.FakeContainer
+		fakeBaggageclaimClient *baggageclaimfakes.FakeClient
+		fakeVolumeClient       *workerfakes.FakeVolumeClient
+		fakeImageFactory       *workerfakes.FakeImageFactory
+		fakeImage              *workerfakes.FakeImage
+		fakeDBTeam             *dbfakes.FakeTeam
+		fakeDBVolumeRepository *dbfakes.FakeVolumeRepository
+		fakeLockFactory        *lockfakes.FakeLockFactory
 
 		containerProvider ContainerProvider
 
@@ -87,7 +84,6 @@ var _ = Describe("ContainerProvider", func() {
 
 		fakeGardenClient = new(gardenfakes.FakeClient)
 		fakeBaggageclaimClient = new(baggageclaimfakes.FakeClient)
-		//fakeReaperClient = new(reaperfakes.FakeReaperClient)
 		fakeVolumeClient = new(workerfakes.FakeVolumeClient)
 		fakeImageFactory = new(workerfakes.FakeImageFactory)
 		fakeImage = new(workerfakes.FakeImage)
@@ -105,8 +101,6 @@ var _ = Describe("ContainerProvider", func() {
 		fakeDBTeamFactory.GetByIDReturns(fakeDBTeam)
 		fakeDBVolumeRepository = new(dbfakes.FakeVolumeRepository)
 		fakeClock := fakeclock.NewFakeClock(time.Unix(0, 123))
-		fakeDBResourceCacheFactory = new(dbfakes.FakeResourceCacheFactory)
-		fakeDBResourceConfigFactory = new(dbfakes.FakeResourceConfigFactory)
 		fakeGardenContainer = new(gardenfakes.FakeContainer)
 		fakeGardenClient.CreateReturns(fakeGardenContainer, nil)
 
@@ -213,12 +207,14 @@ var _ = Describe("ContainerProvider", func() {
 			"secret-source": "super-secret-source",
 		}
 
+		cpu := uint64(1024)
+		memory := uint64(1024)
 		containerSpec = ContainerSpec{
 			TeamID: 73410,
 
 			ImageSpec: ImageSpec{
 				ImageResource: &ImageResource{
-					Type:   "docker-image",
+					Type:   "registry-image",
 					Source: creds.NewSource(variables, atc.Source{"some": "((secret-image))"}),
 				},
 			},
@@ -238,6 +234,10 @@ var _ = Describe("ContainerProvider", func() {
 			},
 			BindMounts: []BindMountSource{
 				fakeBindMount,
+			},
+			Limits: ContainerLimits{
+				CPU:    &cpu,
+				Memory: &memory,
 			},
 		}
 
@@ -386,7 +386,6 @@ var _ = Describe("ContainerProvider", func() {
 			Expect(fakeImageFactory.GetImageCallCount()).To(Equal(1))
 			_, actualWorker, actualVolumeClient, actualImageSpec, actualTeamID, actualDelegate, actualResourceTypes := fakeImageFactory.GetImageArgsForCall(0)
 
-			Expect(actualWorker.BaggageclaimClient()).To(Equal(fakeBaggageclaimClient))
 			Expect(actualWorker.GardenClient()).To(Equal(fakeGardenClient))
 
 			Expect(actualVolumeClient).To(Equal(fakeVolumeClient))
@@ -450,6 +449,10 @@ var _ = Describe("ContainerProvider", func() {
 						DstPath: "/some/work-dir/output",
 						Mode:    garden.BindMountModeRW,
 					},
+				},
+				Limits: garden.Limits{
+					CPU:    garden.CPULimits{LimitInShares: 1024},
+					Memory: garden.MemoryLimits{LimitInBytes: 1024},
 				},
 				Env: []string{
 					"IMAGE=ENV",

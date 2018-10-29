@@ -148,7 +148,7 @@ type CreatedVolume interface {
 	CreateChildForContainer(CreatingContainer, string) (CreatingVolume, error)
 	Destroying() (DestroyingVolume, error)
 	WorkerName() string
-	InitializeResourceCache(*UsedResourceCache) error
+	InitializeResourceCache(UsedResourceCache) error
 	InitializeTaskCache(int, string, string) error
 	ContainerHandle() string
 	ParentHandle() string
@@ -333,16 +333,18 @@ func (volume *createdVolume) findWorkerBaseResourceTypeByBaseResourceTypeID(base
 	}, nil
 }
 
-func (volume *createdVolume) InitializeResourceCache(resourceCache *UsedResourceCache) error {
-	var workerResourceCache *UsedWorkerResourceCache
-	err := safeFindOrCreate(volume.conn, func(tx Tx) error {
-		var err error
-		workerResourceCache, err = WorkerResourceCache{
-			WorkerName:    volume.WorkerName(),
-			ResourceCache: resourceCache,
-		}.FindOrCreate(tx)
+func (volume *createdVolume) InitializeResourceCache(resourceCache UsedResourceCache) error {
+	tx, err := volume.conn.Begin()
+	if err != nil {
 		return err
-	})
+	}
+
+	defer tx.Rollback()
+
+	workerResourceCache, err := WorkerResourceCache{
+		WorkerName:    volume.WorkerName(),
+		ResourceCache: resourceCache,
+	}.FindOrCreate(tx)
 	if err != nil {
 		return err
 	}
@@ -351,11 +353,12 @@ func (volume *createdVolume) InitializeResourceCache(resourceCache *UsedResource
 		Set("worker_resource_cache_id", workerResourceCache.ID).
 		Set("team_id", nil).
 		Where(sq.Eq{"id": volume.id}).
-		RunWith(volume.conn).
+		RunWith(tx).
 		Exec()
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code.Name() == pqUniqueViolationErrCode {
-			// leave it owned by the container
+			// another volume was 'blessed' as the cache volume - leave this one
+			// owned by the container so it just expires when the container is GCed
 			return nil
 		}
 
@@ -371,35 +374,34 @@ func (volume *createdVolume) InitializeResourceCache(resourceCache *UsedResource
 		return ErrVolumeMissing
 	}
 
-	volume.resourceCacheID = resourceCache.ID
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+
+	volume.resourceCacheID = resourceCache.ID()
 	volume.typ = VolumeTypeResource
 
 	return nil
 }
 
 func (volume *createdVolume) InitializeTaskCache(jobID int, stepName string, path string) error {
-	var usedWorkerTaskCache *UsedWorkerTaskCache
-
-	err := safeFindOrCreate(volume.conn, func(tx Tx) error {
-		var err error
-		usedWorkerTaskCache, err = WorkerTaskCache{
-			JobID:      jobID,
-			StepName:   stepName,
-			WorkerName: volume.WorkerName(),
-			Path:       path,
-		}.FindOrCreate(tx)
-		return err
-	})
-	if err != nil {
-		return err
-	}
-
 	tx, err := volume.conn.Begin()
 	if err != nil {
 		return err
 	}
 
 	defer Rollback(tx)
+
+	usedWorkerTaskCache, err := WorkerTaskCache{
+		JobID:      jobID,
+		StepName:   stepName,
+		WorkerName: volume.WorkerName(),
+		Path:       path,
+	}.FindOrCreate(tx)
+	if err != nil {
+		return err
+	}
 
 	// release other old volumes for gc
 	_, err = psql.Update("volumes").
@@ -418,7 +420,8 @@ func (volume *createdVolume) InitializeTaskCache(jobID int, stepName string, pat
 		Exec()
 	if err != nil {
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code.Name() == pqUniqueViolationErrCode {
-			// leave it owned by the container
+			// another volume was 'blessed' as the cache volume - leave this one
+			// owned by the container so it just expires when the container is GCed
 			return nil
 		}
 
@@ -434,7 +437,12 @@ func (volume *createdVolume) InitializeTaskCache(jobID int, stepName string, pat
 		return ErrVolumeMissing
 	}
 
-	return tx.Commit()
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (volume *createdVolume) CreateChildForContainer(container CreatingContainer, mountPath string) (CreatingVolume, error) {
@@ -532,6 +540,7 @@ func (volume *createdVolume) Destroying() (DestroyingVolume, error) {
 	}, nil
 }
 
+//go:generate counterfeiter . DestroyingVolume
 type DestroyingVolume interface {
 	Handle() string
 	Destroy() (bool, error)

@@ -48,7 +48,8 @@ var workersQuery = psql.Select(`
 		t.name,
 		w.team_id,
 		w.start_time,
-		w.expires
+		w.expires,
+		w.ephemeral
 	`).
 	From("workers w").
 	LeftJoin("teams t ON w.team_id = t.id")
@@ -117,11 +118,10 @@ func getWorkers(conn Conn, query sq.SelectBuilder) ([]Worker, error) {
 
 func scanWorker(worker *worker, row scannable) error {
 	var (
-		version  sql.NullString
-		addStr   sql.NullString
-		state    string
-		bcURLStr sql.NullString
-		//	reaperAddr    sql.NullString
+		version       sql.NullString
+		addStr        sql.NullString
+		state         string
+		bcURLStr      sql.NullString
 		certsPathStr  sql.NullString
 		httpProxyURL  sql.NullString
 		httpsProxyURL sql.NullString
@@ -133,6 +133,7 @@ func scanWorker(worker *worker, row scannable) error {
 		teamID        sql.NullInt64
 		startTime     sql.NullInt64
 		expiresAt     *time.Time
+		ephemeral     sql.NullBool
 	)
 
 	err := row.Scan(
@@ -141,7 +142,6 @@ func scanWorker(worker *worker, row scannable) error {
 		&addStr,
 		&state,
 		&bcURLStr,
-		//	&reaperAddr,
 		&certsPathStr,
 		&httpProxyURL,
 		&httpsProxyURL,
@@ -154,6 +154,7 @@ func scanWorker(worker *worker, row scannable) error {
 		&teamID,
 		&startTime,
 		&expiresAt,
+		&ephemeral,
 	)
 	if err != nil {
 		return err
@@ -170,10 +171,6 @@ func scanWorker(worker *worker, row scannable) error {
 	if bcURLStr.Valid {
 		worker.baggageclaimURL = &bcURLStr.String
 	}
-
-	// if reaperAddr.Valid {
-	// 	worker.reaperAddr = &reaperAddr.String
-	// }
 
 	if certsPathStr.Valid {
 		worker.certsPath = &certsPathStr.String
@@ -211,6 +208,10 @@ func scanWorker(worker *worker, row scannable) error {
 
 	if platform.Valid {
 		worker.platform = platform.String
+	}
+
+	if ephemeral.Valid {
+		worker.ephemeral = ephemeral.Bool
 	}
 
 	err = json.Unmarshal(resourceTypes, &worker.resourceTypes)
@@ -266,19 +267,10 @@ func (f *workerFactory) HeartbeatWorker(atcWorker atc.Worker, ttl time.Duration)
 		return nil, err
 	}
 
-	// reapSQL, _, err := sq.Case("state").
-	// 	When("'landed'::worker_state", "NULL").
-	// 	Else("'" + atcWorker.ReaperAddr + "'").
-	// 	ToSql()
-	// if err != nil {
-	// 	return nil, err
-	// }
-
 	_, err = psql.Update("workers").
 		Set("expires", sq.Expr(expires)).
 		Set("addr", sq.Expr("("+addrSQL+")")).
 		Set("baggageclaim_url", sq.Expr("("+bcSQL+")")).
-		//	Set("reaper_addr", sq.Expr("("+reapSQL+")")).
 		Set("active_containers", atcWorker.ActiveContainers).
 		Set("state", sq.Expr("("+cSQL+")")).
 		Where(sq.Eq{"name": atcWorker.Name}).
@@ -349,8 +341,6 @@ func saveWorker(tx Tx, atcWorker atc.Worker, teamID *int, ttl time.Duration, con
 		expires = fmt.Sprintf(`NOW() + '%d second'::INTERVAL`, int(ttl.Seconds()))
 	}
 
-	var oldTeamID sql.NullInt64
-
 	var workerState WorkerState
 	if atcWorker.State != "" {
 		workerState = WorkerState(atcWorker.State)
@@ -363,90 +353,90 @@ func saveWorker(tx Tx, atcWorker atc.Worker, teamID *int, ttl time.Duration, con
 		workerVersion = &atcWorker.Version
 	}
 
-	err = psql.Select("team_id").From("workers").Where(sq.Eq{
-		"name": atcWorker.Name,
-	}).RunWith(tx).QueryRow().Scan(&oldTeamID)
+	values := []interface{}{
+		atcWorker.GardenAddr,
+		atcWorker.ActiveContainers,
+		resourceTypes,
+		tags,
+		atcWorker.Platform,
+		atcWorker.BaggageclaimURL,
+		atcWorker.CertsPath,
+		atcWorker.HTTPProxyURL,
+		atcWorker.HTTPSProxyURL,
+		atcWorker.NoProxy,
+		atcWorker.Name,
+		workerVersion,
+		atcWorker.StartTime,
+		string(workerState),
+		teamID,
+		atcWorker.Ephemeral,
+	}
 
-	if err != nil {
-		if err == sql.ErrNoRows {
-			_, err = psql.Insert("workers").
-				Columns(
-					"addr",
-					"expires",
-					"active_containers",
-					"resource_types",
-					"tags",
-					"platform",
-					"baggageclaim_url",
-					// "reaper_addr",
-					"certs_path",
-					"http_proxy_url",
-					"https_proxy_url",
-					"no_proxy",
-					"name",
-					"version",
-					"start_time",
-					"team_id",
-					"state",
-				).
-				Values(
-					atcWorker.GardenAddr,
-					sq.Expr(expires),
-					atcWorker.ActiveContainers,
-					resourceTypes,
-					tags,
-					atcWorker.Platform,
-					atcWorker.BaggageclaimURL,
-					//			atcWorker.ReaperAddr,
-					atcWorker.CertsPath,
-					atcWorker.HTTPProxyURL,
-					atcWorker.HTTPSProxyURL,
-					atcWorker.NoProxy,
-					atcWorker.Name,
-					workerVersion,
-					atcWorker.StartTime,
-					teamID,
-					string(workerState),
-				).
-				RunWith(tx).
-				Exec()
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			return nil, err
-		}
+	conflictValues := values
+	var matchTeamUpsert string
+	if teamID == nil {
+		matchTeamUpsert = "workers.team_id IS NULL"
 	} else {
-		if (oldTeamID.Valid == (teamID == nil)) ||
-			(oldTeamID.Valid && (*teamID != int(oldTeamID.Int64))) {
-			return nil, errors.New("update-of-other-teams-worker-not-allowed")
-		}
+		matchTeamUpsert = "workers.team_id = ?"
+		conflictValues = append(conflictValues, *teamID)
+	}
 
-		_, err = psql.Update("workers").
-			Set("addr", atcWorker.GardenAddr).
-			Set("expires", sq.Expr(expires)).
-			Set("active_containers", atcWorker.ActiveContainers).
-			Set("resource_types", resourceTypes).
-			Set("tags", tags).
-			Set("platform", atcWorker.Platform).
-			Set("baggageclaim_url", atcWorker.BaggageclaimURL).
-			//		Set("reaper_addr", atcWorker.ReaperAddr).
-			Set("certs_path", atcWorker.CertsPath).
-			Set("http_proxy_url", atcWorker.HTTPProxyURL).
-			Set("https_proxy_url", atcWorker.HTTPSProxyURL).
-			Set("no_proxy", atcWorker.NoProxy).
-			Set("name", atcWorker.Name).
-			Set("version", workerVersion).
-			Set("start_time", atcWorker.StartTime).
-			Set("state", string(workerState)).
-			Where(sq.Eq{
-				"name": atcWorker.Name,
-			}).
-			RunWith(tx).
-			Exec()
-		if err != nil {
-			return nil, err
-		}
+	rows, err := psql.Insert("workers").
+		Columns(
+			"expires",
+			"addr",
+			"active_containers",
+			"resource_types",
+			"tags",
+			"platform",
+			"baggageclaim_url",
+			"certs_path",
+			"http_proxy_url",
+			"https_proxy_url",
+			"no_proxy",
+			"name",
+			"version",
+			"start_time",
+			"state",
+			"team_id",
+			"ephemeral",
+		).
+		Values(append([]interface{}{sq.Expr(expires)}, values...)...).
+		Suffix(`
+			ON CONFLICT (name) DO UPDATE SET
+				expires = `+expires+`,
+				addr = ?,
+				active_containers = ?,
+				resource_types = ?,
+				tags = ?,
+				platform = ?,
+				baggageclaim_url = ?,
+				certs_path = ?,
+				http_proxy_url = ?,
+				https_proxy_url = ?,
+				no_proxy = ?,
+				name = ?,
+				version = ?,
+				start_time = ?,
+				state = ?,
+				team_id = ?,
+				ephemeral = ?
+			WHERE `+matchTeamUpsert,
+			conflictValues...,
+		).
+		RunWith(tx).
+		Exec()
+	if err != nil {
+		return nil, err
+	}
+
+	count, err := rows.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+
+	if count == 0 {
+		return nil, errors.New("worker already exists and is either global or owned by another team")
 	}
 
 	var workerTeamID int
@@ -455,12 +445,11 @@ func saveWorker(tx Tx, atcWorker atc.Worker, teamID *int, ttl time.Duration, con
 	}
 
 	savedWorker := &worker{
-		name:            atcWorker.Name,
-		version:         workerVersion,
-		state:           workerState,
-		gardenAddr:      &atcWorker.GardenAddr,
-		baggageclaimURL: &atcWorker.BaggageclaimURL,
-		//reaperAddr:       &atcWorker.ReaperAddr,
+		name:             atcWorker.Name,
+		version:          workerVersion,
+		state:            workerState,
+		gardenAddr:       &atcWorker.GardenAddr,
+		baggageclaimURL:  &atcWorker.BaggageclaimURL,
 		certsPath:        atcWorker.CertsPath,
 		httpProxyURL:     atcWorker.HTTPProxyURL,
 		httpsProxyURL:    atcWorker.HTTPSProxyURL,
@@ -472,16 +461,11 @@ func saveWorker(tx Tx, atcWorker atc.Worker, teamID *int, ttl time.Duration, con
 		teamName:         atcWorker.Team,
 		teamID:           workerTeamID,
 		startTime:        atcWorker.StartTime,
+		ephemeral:        atcWorker.Ephemeral,
 		conn:             conn,
 	}
 
 	workerBaseResourceTypeIDs := []int{}
-
-	var (
-		brt  BaseResourceType
-		ubrt *UsedBaseResourceType
-		uwrt *UsedWorkerResourceType
-	)
 
 	for _, resourceType := range atcWorker.ResourceTypes {
 		workerResourceType := WorkerResourceType{
@@ -493,11 +477,7 @@ func saveWorker(tx Tx, atcWorker atc.Worker, teamID *int, ttl time.Duration, con
 			},
 		}
 
-		brt = BaseResourceType{
-			Name: resourceType.Type,
-		}
-
-		ubrt, err = brt.FindOrCreate(tx)
+		ubrt, err := workerResourceType.BaseResourceType.FindOrCreate(tx)
 		if err != nil {
 			return nil, err
 		}
@@ -507,15 +487,21 @@ func saveWorker(tx Tx, atcWorker atc.Worker, teamID *int, ttl time.Duration, con
 				"worker_name":           atcWorker.Name,
 				"base_resource_type_id": ubrt.ID,
 			}).
-			Where(sq.NotEq{
-				"version": resourceType.Version,
+			Where(sq.Or{
+				sq.NotEq{
+					"image": resourceType.Image,
+				},
+				sq.NotEq{
+					"version": resourceType.Version,
+				},
 			}).
 			RunWith(tx).
 			Exec()
 		if err != nil {
 			return nil, err
 		}
-		uwrt, err = workerResourceType.FindOrCreate(tx)
+
+		uwrt, err := workerResourceType.FindOrCreate(tx)
 		if err != nil {
 			return nil, err
 		}
@@ -541,7 +527,6 @@ func saveWorker(tx Tx, atcWorker atc.Worker, teamID *int, ttl time.Duration, con
 			WorkerName: atcWorker.Name,
 			CertsPath:  *atcWorker.CertsPath,
 		}.FindOrCreate(tx)
-
 		if err != nil {
 			return nil, err
 		}

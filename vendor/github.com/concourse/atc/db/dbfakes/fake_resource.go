@@ -37,6 +37,15 @@ type FakeResource struct {
 	pipelineNameReturnsOnCall map[int]struct {
 		result1 string
 	}
+	TeamNameStub        func() string
+	teamNameMutex       sync.RWMutex
+	teamNameArgsForCall []struct{}
+	teamNameReturns     struct {
+		result1 string
+	}
+	teamNameReturnsOnCall map[int]struct {
+		result1 string
+	}
 	TypeStub        func() string
 	typeMutex       sync.RWMutex
 	typeArgsForCall []struct{}
@@ -62,6 +71,15 @@ type FakeResource struct {
 		result1 string
 	}
 	checkEveryReturnsOnCall map[int]struct {
+		result1 string
+	}
+	CheckTimeoutStub        func() string
+	checkTimeoutMutex       sync.RWMutex
+	checkTimeoutArgsForCall []struct{}
+	checkTimeoutReturns     struct {
+		result1 string
+	}
+	checkTimeoutReturnsOnCall map[int]struct {
 		result1 string
 	}
 	LastCheckedStub        func() time.Time
@@ -108,6 +126,15 @@ type FakeResource struct {
 	}
 	webhookTokenReturnsOnCall map[int]struct {
 		result1 string
+	}
+	PinnedVersionStub        func() atc.Version
+	pinnedVersionMutex       sync.RWMutex
+	pinnedVersionArgsForCall []struct{}
+	pinnedVersionReturns     struct {
+		result1 atc.Version
+	}
+	pinnedVersionReturnsOnCall map[int]struct {
+		result1 atc.Version
 	}
 	FailingToCheckStub        func() bool
 	failingToCheckMutex       sync.RWMutex
@@ -282,6 +309,46 @@ func (fake *FakeResource) PipelineNameReturnsOnCall(i int, result1 string) {
 	}{result1}
 }
 
+func (fake *FakeResource) TeamName() string {
+	fake.teamNameMutex.Lock()
+	ret, specificReturn := fake.teamNameReturnsOnCall[len(fake.teamNameArgsForCall)]
+	fake.teamNameArgsForCall = append(fake.teamNameArgsForCall, struct{}{})
+	fake.recordInvocation("TeamName", []interface{}{})
+	fake.teamNameMutex.Unlock()
+	if fake.TeamNameStub != nil {
+		return fake.TeamNameStub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fake.teamNameReturns.result1
+}
+
+func (fake *FakeResource) TeamNameCallCount() int {
+	fake.teamNameMutex.RLock()
+	defer fake.teamNameMutex.RUnlock()
+	return len(fake.teamNameArgsForCall)
+}
+
+func (fake *FakeResource) TeamNameReturns(result1 string) {
+	fake.TeamNameStub = nil
+	fake.teamNameReturns = struct {
+		result1 string
+	}{result1}
+}
+
+func (fake *FakeResource) TeamNameReturnsOnCall(i int, result1 string) {
+	fake.TeamNameStub = nil
+	if fake.teamNameReturnsOnCall == nil {
+		fake.teamNameReturnsOnCall = make(map[int]struct {
+			result1 string
+		})
+	}
+	fake.teamNameReturnsOnCall[i] = struct {
+		result1 string
+	}{result1}
+}
+
 func (fake *FakeResource) Type() string {
 	fake.typeMutex.Lock()
 	ret, specificReturn := fake.typeReturnsOnCall[len(fake.typeArgsForCall)]
@@ -398,6 +465,46 @@ func (fake *FakeResource) CheckEveryReturnsOnCall(i int, result1 string) {
 		})
 	}
 	fake.checkEveryReturnsOnCall[i] = struct {
+		result1 string
+	}{result1}
+}
+
+func (fake *FakeResource) CheckTimeout() string {
+	fake.checkTimeoutMutex.Lock()
+	ret, specificReturn := fake.checkTimeoutReturnsOnCall[len(fake.checkTimeoutArgsForCall)]
+	fake.checkTimeoutArgsForCall = append(fake.checkTimeoutArgsForCall, struct{}{})
+	fake.recordInvocation("CheckTimeout", []interface{}{})
+	fake.checkTimeoutMutex.Unlock()
+	if fake.CheckTimeoutStub != nil {
+		return fake.CheckTimeoutStub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fake.checkTimeoutReturns.result1
+}
+
+func (fake *FakeResource) CheckTimeoutCallCount() int {
+	fake.checkTimeoutMutex.RLock()
+	defer fake.checkTimeoutMutex.RUnlock()
+	return len(fake.checkTimeoutArgsForCall)
+}
+
+func (fake *FakeResource) CheckTimeoutReturns(result1 string) {
+	fake.CheckTimeoutStub = nil
+	fake.checkTimeoutReturns = struct {
+		result1 string
+	}{result1}
+}
+
+func (fake *FakeResource) CheckTimeoutReturnsOnCall(i int, result1 string) {
+	fake.CheckTimeoutStub = nil
+	if fake.checkTimeoutReturnsOnCall == nil {
+		fake.checkTimeoutReturnsOnCall = make(map[int]struct {
+			result1 string
+		})
+	}
+	fake.checkTimeoutReturnsOnCall[i] = struct {
 		result1 string
 	}{result1}
 }
@@ -599,6 +706,46 @@ func (fake *FakeResource) WebhookTokenReturnsOnCall(i int, result1 string) {
 	}
 	fake.webhookTokenReturnsOnCall[i] = struct {
 		result1 string
+	}{result1}
+}
+
+func (fake *FakeResource) PinnedVersion() atc.Version {
+	fake.pinnedVersionMutex.Lock()
+	ret, specificReturn := fake.pinnedVersionReturnsOnCall[len(fake.pinnedVersionArgsForCall)]
+	fake.pinnedVersionArgsForCall = append(fake.pinnedVersionArgsForCall, struct{}{})
+	fake.recordInvocation("PinnedVersion", []interface{}{})
+	fake.pinnedVersionMutex.Unlock()
+	if fake.PinnedVersionStub != nil {
+		return fake.PinnedVersionStub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fake.pinnedVersionReturns.result1
+}
+
+func (fake *FakeResource) PinnedVersionCallCount() int {
+	fake.pinnedVersionMutex.RLock()
+	defer fake.pinnedVersionMutex.RUnlock()
+	return len(fake.pinnedVersionArgsForCall)
+}
+
+func (fake *FakeResource) PinnedVersionReturns(result1 atc.Version) {
+	fake.PinnedVersionStub = nil
+	fake.pinnedVersionReturns = struct {
+		result1 atc.Version
+	}{result1}
+}
+
+func (fake *FakeResource) PinnedVersionReturnsOnCall(i int, result1 atc.Version) {
+	fake.PinnedVersionStub = nil
+	if fake.pinnedVersionReturnsOnCall == nil {
+		fake.pinnedVersionReturnsOnCall = make(map[int]struct {
+			result1 atc.Version
+		})
+	}
+	fake.pinnedVersionReturnsOnCall[i] = struct {
+		result1 atc.Version
 	}{result1}
 }
 
@@ -822,12 +969,16 @@ func (fake *FakeResource) Invocations() map[string][][]interface{} {
 	defer fake.nameMutex.RUnlock()
 	fake.pipelineNameMutex.RLock()
 	defer fake.pipelineNameMutex.RUnlock()
+	fake.teamNameMutex.RLock()
+	defer fake.teamNameMutex.RUnlock()
 	fake.typeMutex.RLock()
 	defer fake.typeMutex.RUnlock()
 	fake.sourceMutex.RLock()
 	defer fake.sourceMutex.RUnlock()
 	fake.checkEveryMutex.RLock()
 	defer fake.checkEveryMutex.RUnlock()
+	fake.checkTimeoutMutex.RLock()
+	defer fake.checkTimeoutMutex.RUnlock()
 	fake.lastCheckedMutex.RLock()
 	defer fake.lastCheckedMutex.RUnlock()
 	fake.tagsMutex.RLock()
@@ -838,6 +989,8 @@ func (fake *FakeResource) Invocations() map[string][][]interface{} {
 	defer fake.pausedMutex.RUnlock()
 	fake.webhookTokenMutex.RLock()
 	defer fake.webhookTokenMutex.RUnlock()
+	fake.pinnedVersionMutex.RLock()
+	defer fake.pinnedVersionMutex.RUnlock()
 	fake.failingToCheckMutex.RLock()
 	defer fake.failingToCheckMutex.RUnlock()
 	fake.setResourceConfigMutex.RLock()

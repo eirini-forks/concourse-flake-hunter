@@ -41,6 +41,121 @@ var _ = Describe("Resources API", func() {
 		fakeAccessor.CreateReturns(fakeaccess)
 	})
 
+	Describe("GET /api/v1/resources", func() {
+		var response *http.Response
+
+		JustBeforeEach(func() {
+			var err error
+
+			response, err = client.Get(server.URL + "/api/v1/resources")
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		Context("when getting the dashboard resources succeeds", func() {
+			BeforeEach(func() {
+				resource1 = new(dbfakes.FakeResource)
+				resource1.IDReturns(1)
+				resource1.CheckErrorReturns(nil)
+				resource1.PausedReturns(true)
+				resource1.PipelineNameReturns("a-pipeline")
+				resource1.TeamNameReturns("some-team")
+				resource1.NameReturns("resource-1")
+				resource1.TypeReturns("type-1")
+				resource1.LastCheckedReturns(time.Unix(1513364881, 0))
+
+				resource2 := new(dbfakes.FakeResource)
+				resource2.IDReturns(2)
+				resource2.CheckErrorReturns(errors.New("sup"))
+				resource2.FailingToCheckReturns(true)
+				resource2.PausedReturns(false)
+				resource2.PipelineNameReturns("a-pipeline")
+				resource2.TeamNameReturns("other-team")
+				resource2.NameReturns("resource-2")
+				resource2.TypeReturns("type-2")
+
+				resource3 := new(dbfakes.FakeResource)
+				resource3.IDReturns(3)
+				resource3.CheckErrorReturns(nil)
+				resource3.PausedReturns(true)
+				resource3.PipelineNameReturns("a-pipeline")
+				resource3.TeamNameReturns("another-team")
+				resource3.NameReturns("resource-3")
+				resource3.TypeReturns("type-3")
+
+				dbResourceFactory.VisibleResourcesReturns([]db.Resource{
+					resource1, resource2, resource3,
+				}, nil)
+			})
+
+			It("returns 200 OK", func() {
+				Expect(response.StatusCode).To(Equal(http.StatusOK))
+			})
+
+			It("returns Content-Type 'application/json'", func() {
+				Expect(response.Header.Get("Content-Type")).To(Equal("application/json"))
+			})
+
+			It("returns each resource, including their check failure", func() {
+				body, err := ioutil.ReadAll(response.Body)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(body).To(MatchJSON(`[
+						{
+							"name": "resource-1",
+							"pipeline_name": "a-pipeline",
+							"team_name": "some-team",
+							"type": "type-1",
+							"paused": true,
+							"last_checked": 1513364881
+						},
+						{
+							"name": "resource-2",
+							"pipeline_name": "a-pipeline",
+							"team_name": "other-team",
+							"type": "type-2",
+							"failing_to_check": true,
+							"check_error": "sup"
+						},
+						{
+							"name": "resource-3",
+							"pipeline_name": "a-pipeline",
+							"team_name": "another-team",
+							"type": "type-3",
+							"paused": true
+						}
+					]`))
+			})
+
+			Context("when getting the resource config fails", func() {
+				BeforeEach(func() {
+					dbResourceFactory.VisibleResourcesReturns(nil, errors.New("nope"))
+				})
+
+				It("returns 500", func() {
+					Expect(response.StatusCode).To(Equal(http.StatusInternalServerError))
+				})
+			})
+
+			Context("when not authenticated", func() {
+				It("populates resource factory with no team names", func() {
+					Expect(dbResourceFactory.VisibleResourcesCallCount()).To(Equal(1))
+					Expect(dbResourceFactory.VisibleResourcesArgsForCall(0)).To(BeEmpty())
+				})
+			})
+
+			Context("when authenticated", func() {
+				BeforeEach(func() {
+					fakeaccess.TeamNamesReturns([]string{"some-team"})
+				})
+
+				It("constructs job factory with provided team names", func() {
+					Expect(dbResourceFactory.VisibleResourcesCallCount()).To(Equal(1))
+					Expect(dbResourceFactory.VisibleResourcesArgsForCall(0)).To(ContainElement("some-team"))
+				})
+			})
+		})
+	})
+
 	Describe("GET /api/v1/teams/:team_name/pipelines/:pipeline_name/resources", func() {
 		var response *http.Response
 
@@ -82,17 +197,6 @@ var _ = Describe("Resources API", func() {
 				fakePipeline.ResourcesReturns([]db.Resource{
 					resource1, resource2, resource3,
 				}, nil)
-
-				fakePipeline.GroupsReturns([]atc.GroupConfig{
-					{
-						Name:      "group-1",
-						Resources: []string{"resource-1"},
-					},
-					{
-						Name:      "group-2",
-						Resources: []string{"resource-1", "resource-2"},
-					},
-				})
 			})
 
 			Context("when not authenticated and not authorized", func() {
@@ -134,7 +238,6 @@ var _ = Describe("Resources API", func() {
 						"pipeline_name": "a-pipeline",
 						"team_name": "a-team",
 						"type": "type-1",
-						"groups": ["group-1", "group-2"],
 						"paused": true,
 						"last_checked": 1513364881
 					},
@@ -143,7 +246,6 @@ var _ = Describe("Resources API", func() {
 						"pipeline_name": "a-pipeline",
 						"team_name": "a-team",
 						"type": "type-2",
-						"groups": ["group-2"],
 						"failing_to_check": true
 					},
 					{
@@ -151,7 +253,6 @@ var _ = Describe("Resources API", func() {
 						"pipeline_name": "a-pipeline",
 						"team_name": "a-team",
 						"type": "type-3",
-						"groups": [],
 						"paused": true
 					}
 				]`))
@@ -183,7 +284,6 @@ var _ = Describe("Resources API", func() {
 							"pipeline_name": "a-pipeline",
 							"team_name": "a-team",
 							"type": "type-1",
-							"groups": ["group-1", "group-2"],
 							"paused": true,
 							"last_checked": 1513364881
 						},
@@ -192,7 +292,6 @@ var _ = Describe("Resources API", func() {
 							"pipeline_name": "a-pipeline",
 							"team_name": "a-team",
 							"type": "type-2",
-							"groups": ["group-2"],
 							"failing_to_check": true,
 							"check_error": "sup"
 						},
@@ -201,7 +300,6 @@ var _ = Describe("Resources API", func() {
 							"pipeline_name": "a-pipeline",
 							"team_name": "a-team",
 							"type": "type-3",
-							"groups": [],
 							"paused": true
 						}
 					]`))
@@ -227,6 +325,81 @@ var _ = Describe("Resources API", func() {
 							Expect(response.StatusCode).To(Equal(http.StatusInternalServerError))
 						})
 					})
+				})
+			})
+		})
+	})
+
+	Describe("POST /api/v1/teams/:team_name/pipelines/:pipeline_name/resource-types/:resource_name/check", func() {
+		var response *http.Response
+
+		JustBeforeEach(func() {
+			request, err := http.NewRequest("POST", server.URL+"/api/v1/teams/a-team/pipelines/a-pipeline/resource-types/resource-type-name/check", nil)
+			Expect(err).NotTo(HaveOccurred())
+			request.Header.Set("Content-Type", "application/json")
+
+			response, err = client.Do(request)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		Context("when not authenticated", func() {
+			BeforeEach(func() {
+				fakeaccess.IsAuthenticatedReturns(false)
+			})
+
+			It("returns Unauthorized", func() {
+				Expect(response.StatusCode).To(Equal(http.StatusUnauthorized))
+			})
+		})
+
+		Context("when not authorized", func() {
+			BeforeEach(func() {
+				fakeaccess.IsAuthenticatedReturns(true)
+				fakeaccess.IsAuthorizedReturns(false)
+			})
+
+			It("returns Forbidden", func() {
+				Expect(response.StatusCode).To(Equal(http.StatusForbidden))
+			})
+		})
+
+		Context("when authenticated and authorized", func() {
+			var fakeScanner *radarfakes.FakeScanner
+
+			BeforeEach(func() {
+				fakeaccess.IsAuthenticatedReturns(true)
+				fakeaccess.IsAuthorizedReturns(true)
+
+				fakeScanner = new(radarfakes.FakeScanner)
+				fakeScannerFactory.NewResourceTypeScannerReturns(fakeScanner)
+			})
+
+			It("returns 200", func() {
+				Expect(response.StatusCode).To(Equal(http.StatusOK))
+			})
+
+			It("calls Scan", func() {
+				Expect(fakeScanner.ScanCallCount()).To(Equal(1))
+			})
+
+			Context("when resource type checking fails with ResourceNotFoundError", func() {
+				BeforeEach(func() {
+					fakeScanner.ScanReturns(db.ResourceTypeNotFoundError{})
+				})
+
+				It("returns 404", func() {
+					Expect(response.StatusCode).To(Equal(http.StatusNotFound))
+				})
+			})
+
+			Context("when resource type fails with unexpected error", func() {
+				BeforeEach(func() {
+					err := errors.New("some-error")
+					fakeScanner.ScanReturns(err)
+				})
+
+				It("returns 500", func() {
+					Expect(response.StatusCode).To(Equal(http.StatusInternalServerError))
 				})
 			})
 		})
@@ -263,6 +436,7 @@ var _ = Describe("Resources API", func() {
 				resourceType2.TypeReturns("type-2")
 				resourceType2.SourceReturns(map[string]interface{}{"source-key-2": "source-value-2"})
 				resourceType2.PrivilegedReturns(true)
+				resourceType2.CheckEveryReturns("10ms")
 				resourceType2.TagsReturns([]string{"tag1", "tag2"})
 				resourceType2.ParamsReturns(map[string]interface{}{"param-key-2": "param-value-2"})
 				resourceType2.VersionReturns(map[string]string{
@@ -313,6 +487,7 @@ var _ = Describe("Resources API", func() {
 					"type": "type-1",
 					"tags": ["tag1"],
 					"privileged": false,
+					"check_every": "",
 					"params": {"param-key-1": "param-value-1"},
 					"source": {"source-key-1": "source-value-1"},
 					"version": {
@@ -325,6 +500,7 @@ var _ = Describe("Resources API", func() {
 					"type": "type-2",
 					"tags": ["tag1", "tag2"],
 					"privileged": true,
+					"check_every": "10ms",
 					"params": {"param-key-2": "param-value-2"},
 					"source": {"source-key-2": "source-value-2"},
 					"version": {
@@ -360,6 +536,7 @@ var _ = Describe("Resources API", func() {
 				"type": "type-1",
 				"tags": ["tag1"],
 				"privileged": false,
+				"check_every": "",
 				"params": {"param-key-1": "param-value-1"},
 				"source": {"source-key-1": "source-value-1"},
 				"version": {
@@ -372,6 +549,7 @@ var _ = Describe("Resources API", func() {
 				"type": "type-2",
 				"tags": ["tag1", "tag2"],
 				"privileged": true,
+				"check_every": "10ms",
 				"params": {"param-key-2": "param-value-2"},
 				"source": {"source-key-2": "source-value-2"},
 				"version": {
@@ -477,7 +655,6 @@ var _ = Describe("Resources API", func() {
 						"pipeline_name": "a-pipeline",
 						"team_name": "a-team",
 						"type": "type-1",
-						"groups": [],
 						"last_checked": 1513364881,
 						"failing_to_check": true
 					}`))
@@ -528,16 +705,6 @@ var _ = Describe("Resources API", func() {
 					resource1.LastCheckedReturns(time.Unix(1513364881, 0))
 
 					fakePipeline.ResourceReturns(resource1, true, nil)
-					fakePipeline.GroupsReturns([]atc.GroupConfig{
-						{
-							Name:      "group-1",
-							Resources: []string{"resource-1"},
-						},
-						{
-							Name:      "group-2",
-							Resources: []string{"resource-1", "resource-2"},
-						},
-					})
 				})
 
 				It("returns 200 ok", func() {
@@ -558,12 +725,68 @@ var _ = Describe("Resources API", func() {
 								"pipeline_name": "a-pipeline",
 								"team_name": "a-team",
 								"type": "type-1",
-								"groups": ["group-1", "group-2"],
 								"last_checked": 1513364881,
 								"paused": true,
 								"failing_to_check": true,
 								"check_error": "sup"
 							}`))
+				})
+			})
+		})
+
+		Context("when authenticated but not authorized", func() {
+			BeforeEach(func() {
+				fakeaccess.IsAuthenticatedReturns(true)
+				fakeaccess.IsAuthorizedReturns(false)
+			})
+
+			Context("and the pipeline is private", func() {
+				BeforeEach(func() {
+					fakePipeline.PublicReturns(false)
+				})
+
+				It("returns 403", func() {
+					Expect(response.StatusCode).To(Equal(http.StatusForbidden))
+				})
+			})
+
+			Context("and the pipeline is public", func() {
+				BeforeEach(func() {
+					fakePipeline.PublicReturns(true)
+					resourceName = "resource-1"
+
+					resource1 := new(dbfakes.FakeResource)
+					resource1.CheckErrorReturns(errors.New("sup"))
+					resource1.PipelineNameReturns("a-pipeline")
+					resource1.NameReturns("resource-1")
+					resource1.FailingToCheckReturns(true)
+					resource1.TypeReturns("type-1")
+					resource1.LastCheckedReturns(time.Unix(1513364881, 0))
+
+					fakePipeline.ResourceReturns(resource1, true, nil)
+				})
+
+				It("returns 200 OK", func() {
+					Expect(response.StatusCode).To(Equal(http.StatusOK))
+				})
+
+				It("returns Content-Type 'application/json'", func() {
+					Expect(response.Header.Get("Content-Type")).To(Equal("application/json"))
+				})
+
+				It("returns the resource json without the check error", func() {
+					body, err := ioutil.ReadAll(response.Body)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(body).To(MatchJSON(`
+					{
+						"name": "resource-1",
+						"pipeline_name": "a-pipeline",
+						"team_name": "a-team",
+						"type": "type-1",
+						"last_checked": 1513364881,
+						"failing_to_check": true
+					}`))
 				})
 			})
 		})
@@ -731,7 +954,7 @@ var _ = Describe("Resources API", func() {
 		})
 	})
 
-	Describe("GET /api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/check", func() {
+	Describe("POST /api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/check", func() {
 		var fakeScanner *radarfakes.FakeScanner
 		var checkRequestBody atc.CheckRequestBody
 		var response *http.Response

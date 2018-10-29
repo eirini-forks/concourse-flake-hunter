@@ -83,27 +83,20 @@ var _ = Describe("Volume", func() {
 		})
 
 		Describe("the database query succeeds", func() {
-			It("updates the record to be `failed`", func() {
-				Expect(failErr).ToNot(HaveOccurred())
-
-				failedVolumes, err := volumeRepository.GetFailedVolumes()
-				Expect(err).ToNot(HaveOccurred())
-
-				Expect(failedVolumes).To(HaveLen(1))
-				Expect(failedVolumes).To(ContainElement(failedVolume))
-			})
-
 			Context("when the volume is already in the failed state", func() {
 				BeforeEach(func() {
 					_, err := creatingVolume.Failed()
 					Expect(err).ToNot(HaveOccurred())
 				})
 
+				It("returns the failed volume", func() {
+					Expect(failedVolume).ToNot(BeNil())
+				})
+
 				It("does not fail to transition", func() {
 					Expect(failErr).ToNot(HaveOccurred())
 				})
 			})
-
 		})
 	})
 
@@ -187,7 +180,7 @@ var _ = Describe("Volume", func() {
 
 	Describe("createdVolume.InitializeResourceCache", func() {
 		var createdVolume db.CreatedVolume
-		var resourceCache *db.UsedResourceCache
+		var resourceCache db.UsedResourceCache
 		var build db.Build
 
 		BeforeEach(func() {

@@ -2,29 +2,9 @@ package db
 
 import (
 	"database/sql"
-	"fmt"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/lib/pq"
 )
-
-type WorkerBaseResourceTypeAlreadyExistsError struct {
-	WorkerName           string
-	BaseResourceTypeName string
-}
-
-func (e WorkerBaseResourceTypeAlreadyExistsError) Error() string {
-	return fmt.Sprintf("worker '%s' base resource type '%s' already exists", e.WorkerName, e.BaseResourceTypeName)
-}
-
-// base_resource_types: <- gced referenced by 0 workers
-// | id | type | image | version |
-
-// worker_resource_types: <- synced w/ worker creation
-// | worker_name | base_resource_type_id |
-
-// resource_caches: <- gced by cache collector
-// | id | resource_cache_id | base_resource_type_id | source_hash | params_hash | version |
 
 type WorkerResourceType struct {
 	Worker  Worker
@@ -47,6 +27,7 @@ func (wrt WorkerResourceType) FindOrCreate(tx Tx) (*UsedWorkerResourceType, erro
 	if err != nil {
 		return nil, err
 	}
+
 	uwrt, found, err := wrt.find(tx, usedBaseResourceType)
 	if err != nil {
 		return nil, err
@@ -64,12 +45,18 @@ func (wrt WorkerResourceType) find(tx Tx, usedBaseResourceType *UsedBaseResource
 		workerName string
 		id         int
 	)
-	err := psql.Select("id", "worker_name").From("worker_base_resource_types").Where(sq.Eq{
-		"worker_name":           wrt.Worker.Name(),
-		"base_resource_type_id": usedBaseResourceType.ID,
-		"image":                 wrt.Image,
-		"version":               wrt.Version,
-	}).RunWith(tx).QueryRow().Scan(&id, &workerName)
+	err := psql.Select("id", "worker_name").
+		From("worker_base_resource_types").
+		Where(sq.Eq{
+			"worker_name":           wrt.Worker.Name(),
+			"base_resource_type_id": usedBaseResourceType.ID,
+			"image":                 wrt.Image,
+			"version":               wrt.Version,
+		}).
+		Suffix("FOR SHARE").
+		RunWith(tx).
+		QueryRow().
+		Scan(&id, &workerName)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, false, nil
@@ -99,18 +86,16 @@ func (wrt WorkerResourceType) create(tx Tx, usedBaseResourceType *UsedBaseResour
 			wrt.Image,
 			wrt.Version,
 		).
-		Suffix("RETURNING id").
+		Suffix(`
+			ON CONFLICT (worker_name, base_resource_type_id) DO UPDATE SET
+				image = ?,
+				version = ?
+			RETURNING id
+		`, wrt.Image, wrt.Version).
 		RunWith(tx).
 		QueryRow().
 		Scan(&id)
 	if err != nil {
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code.Name() == pqUniqueViolationErrCode {
-			return nil, WorkerBaseResourceTypeAlreadyExistsError{
-				WorkerName:           wrt.Worker.Name(),
-				BaseResourceTypeName: usedBaseResourceType.Name,
-			}
-		}
-
 		return nil, err
 	}
 

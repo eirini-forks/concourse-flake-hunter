@@ -20,6 +20,9 @@ type TaskConfig struct {
 
 	ImageResource *ImageResource `json:"image_resource,omitempty" yaml:"image_resource,omitempty" mapstructure:"image_resource"`
 
+	// Limits to set on the Task Container
+	Limits ContainerLimits `json:"container_limits,omitempty" yaml:"container_limits,omitempty" mapstructure:"container_limits"`
+
 	// Parameters to pass to the task via environment variables.
 	Params map[string]string `json:"params,omitempty" yaml:"params,omitempty" mapstructure:"params"`
 
@@ -34,6 +37,11 @@ type TaskConfig struct {
 
 	// Path to cached directory that will be shared between builds for the same task.
 	Caches []CacheConfig `json:"caches,omitempty" yaml:"caches,omitempty" mapstructure:"caches"`
+}
+
+type ContainerLimits struct {
+	CPU    *uint64 `yaml:"cpu,omitempty" json:"cpu,omitempty"  mapstructure:"cpu"`
+	Memory *uint64 `yaml:"memory,omitempty" json:"memory,omitempty"  mapstructure:"memory"`
 }
 
 type ImageResource struct {
@@ -58,7 +66,10 @@ func NewTaskConfig(configBytes []byte) (TaskConfig, error) {
 		Metadata:         &metadata,
 		Result:           &config,
 		WeaklyTypedInput: true,
-		DecodeHook:       SanitizeDecodeHook,
+		DecodeHook: mapstructure.ComposeDecodeHookFunc(
+			SanitizeDecodeHook,
+			ContainerLimitsDecodeHook,
+		),
 	}
 
 	decoder, err := mapstructure.NewDecoder(msConfig)
@@ -83,7 +94,7 @@ func NewTaskConfig(configBytes []byte) (TaskConfig, error) {
 	return config, nil
 }
 
-func (config TaskConfig) Merge(other TaskConfig) TaskConfig {
+func (config TaskConfig) Merge(other TaskConfig) (TaskConfig, []string, error) {
 	if other.Platform != "" {
 		config.Platform = other.Platform
 	}
@@ -92,20 +103,24 @@ func (config TaskConfig) Merge(other TaskConfig) TaskConfig {
 		config.RootfsURI = other.RootfsURI
 	}
 
-	if len(config.Params) > 0 {
-		newParams := map[string]string{}
+	var warnings []string
 
-		for k, v := range config.Params {
-			newParams[k] = v
+	newParams := map[string]string{}
+
+	for k, v := range config.Params {
+		newParams[k] = v
+	}
+
+	for k, v := range other.Params {
+		if _, exists := config.Params[k]; !exists {
+			warnings = append(warnings, fmt.Sprintf("%s was defined in pipeline but missing from task file", k))
 		}
 
-		for k, v := range other.Params {
-			newParams[k] = v
-		}
+		newParams[k] = v
+	}
 
+	if len(newParams) > 0 {
 		config.Params = newParams
-	} else {
-		config.Params = other.Params
 	}
 
 	if len(other.Inputs) != 0 {
@@ -116,7 +131,7 @@ func (config TaskConfig) Merge(other TaskConfig) TaskConfig {
 		config.Run = other.Run
 	}
 
-	return config
+	return config, warnings, nil
 }
 
 func (config TaskConfig) Validate() error {

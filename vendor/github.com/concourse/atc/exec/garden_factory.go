@@ -20,6 +20,7 @@ type gardenFactory struct {
 	resourceFactory        resource.ResourceFactory
 	dbResourceCacheFactory db.ResourceCacheFactory
 	variablesFactory       creds.VariablesFactory
+	defaultLimits          atc.ContainerLimits
 }
 
 func NewGardenFactory(
@@ -28,6 +29,7 @@ func NewGardenFactory(
 	resourceFactory resource.ResourceFactory,
 	dbResourceCacheFactory db.ResourceCacheFactory,
 	variablesFactory creds.VariablesFactory,
+	defaultLimits atc.ContainerLimits,
 ) Factory {
 	return &gardenFactory{
 		workerClient:           workerClient,
@@ -35,6 +37,7 @@ func NewGardenFactory(
 		resourceFactory:        resourceFactory,
 		dbResourceCacheFactory: dbResourceCacheFactory,
 		variablesFactory:       variablesFactory,
+		defaultLimits:          defaultLimits,
 	}
 }
 
@@ -122,7 +125,7 @@ func (factory *gardenFactory) Task(
 
 	var taskConfigSource TaskConfigSource
 	if plan.Task.ConfigPath != "" && (plan.Task.Config != nil || plan.Task.Params != nil) {
-		taskConfigSource = MergedConfigSource{
+		taskConfigSource = &MergedConfigSource{
 			A: FileConfigSource{plan.Task.ConfigPath},
 			B: StaticConfigSource{Plan: *plan.Task},
 		}
@@ -133,11 +136,6 @@ func (factory *gardenFactory) Task(
 	}
 
 	taskConfigSource = ValidatingConfigSource{ConfigSource: taskConfigSource}
-
-	taskConfigSource = DeprecationConfigSource{
-		Delegate: taskConfigSource,
-		Stderr:   delegate.Stderr(),
-	}
 
 	variables := factory.variablesFactory.NewVariables(build.TeamName(), build.PipelineName())
 
@@ -163,6 +161,7 @@ func (factory *gardenFactory) Task(
 
 		creds.NewVersionedResourceTypes(variables, plan.Task.VersionedResourceTypes),
 		variables,
+		factory.defaultLimits,
 	)
 
 	return LogError(taskStep, delegate)

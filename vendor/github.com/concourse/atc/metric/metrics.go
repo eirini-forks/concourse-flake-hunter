@@ -151,6 +151,22 @@ func (event WorkerVolumes) Emit(logger lager.Logger) {
 	)
 }
 
+type VolumesToBeGarbageCollected struct {
+	Volumes int
+}
+
+func (event VolumesToBeGarbageCollected) Emit(logger lager.Logger) {
+	emit(
+		logger.Session("gc-found-orphaned-volumes-for-deletion"),
+		Event{
+			Name:       "orphaned volumes to be garbage collected",
+			Value:      event.Volumes,
+			State:      EventStateOK,
+			Attributes: map[string]string{},
+		},
+	)
+}
+
 type CreatingContainersToBeGarbageCollected struct {
 	Containers int
 }
@@ -281,24 +297,6 @@ func (event GarbageCollectionContainerCollectorJobDropped) Emit(logger lager.Log
 	)
 }
 
-type GarbageCollectionVolumeCollectorJobDropped struct {
-	WorkerName string
-}
-
-func (event GarbageCollectionVolumeCollectorJobDropped) Emit(logger lager.Logger) {
-	emit(
-		logger.Session("gc-volume-collector-dropped"),
-		Event{
-			Name:  "GC volume collector job dropped",
-			Value: 1,
-			State: EventStateOK,
-			Attributes: map[string]string{
-				"worker": event.WorkerName,
-			},
-		},
-	)
-}
-
 type BuildStarted struct {
 	PipelineName string
 	JobName      string
@@ -386,6 +384,33 @@ func (event HTTPResponseTime) Emit(logger lager.Logger) {
 				"route":  event.Route,
 				"path":   event.Path,
 				"method": event.Method,
+			},
+		},
+	)
+}
+
+type ResourceCheck struct {
+	PipelineName string
+	ResourceName string
+	TeamName     string
+	Success      bool
+}
+
+func (event ResourceCheck) Emit(logger lager.Logger) {
+	state := EventStateOK
+	if !event.Success {
+		state = EventStateWarning
+	}
+	emit(
+		logger.Session("resource-check"),
+		Event{
+			Name:  "resource checked",
+			Value: 1,
+			State: state,
+			Attributes: map[string]string{
+				"pipeline": event.PipelineName,
+				"resource": event.ResourceName,
+				"team":     event.TeamName,
 			},
 		},
 	)

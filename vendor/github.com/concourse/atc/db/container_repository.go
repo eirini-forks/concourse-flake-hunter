@@ -2,13 +2,14 @@ package db
 
 import (
 	sq "github.com/Masterminds/squirrel"
+	"github.com/concourse/atc"
 )
 
 //go:generate counterfeiter . ContainerRepository
 
 type ContainerRepository interface {
 	FindOrphanedContainers() ([]CreatingContainer, []CreatedContainer, []DestroyingContainer, error)
-	FindFailedContainers() ([]FailedContainer, error)
+	DestroyFailedContainers() (int, error)
 	FindDestroyingContainers(workerName string) ([]string, error)
 	RemoveDestroyingContainers(workerName string, currentHandles []string) (int, error)
 }
@@ -30,7 +31,7 @@ func (repository *containerRepository) FindDestroyingContainers(workerName strin
 		Where(
 			sq.And{
 				sq.Eq{
-					"state":       ContainerStateDestroying,
+					"state":       atc.ContainerStateDestroying,
 					"worker_name": workerName,
 				},
 				sq.NotEq{
@@ -70,7 +71,7 @@ func (repository *containerRepository) RemoveDestroyingContainers(workerName str
 					"handle": handles,
 				},
 				sq.Eq{
-					"state": ContainerStateDestroying,
+					"state": atc.ContainerStateDestroying,
 				},
 			},
 		).RunWith(repository.conn).
@@ -106,11 +107,11 @@ func (repository *containerRepository) FindOrphanedContainers() ([]CreatingConta
 			},
 			sq.And{
 				sq.NotEq{"c.image_check_container_id": nil},
-				sq.NotEq{"icc.state": ContainerStateCreating},
+				sq.NotEq{"icc.state": atc.ContainerStateCreating},
 			},
 			sq.And{
 				sq.NotEq{"c.image_get_container_id": nil},
-				sq.NotEq{"igc.state": ContainerStateCreating},
+				sq.NotEq{"igc.state": atc.ContainerStateCreating},
 			},
 		}).
 		ToSql()
@@ -201,7 +202,7 @@ func scanContainer(row sq.RowScanner, conn Conn) (CreatingContainer, CreatedCont
 	}
 
 	switch state {
-	case ContainerStateCreating:
+	case atc.ContainerStateCreating:
 		return newCreatingContainer(
 			id,
 			handle,
@@ -209,7 +210,7 @@ func scanContainer(row sq.RowScanner, conn Conn) (CreatingContainer, CreatedCont
 			metadata,
 			conn,
 		), nil, nil, nil, nil
-	case ContainerStateCreated:
+	case atc.ContainerStateCreated:
 		return nil, newCreatedContainer(
 			id,
 			handle,
@@ -218,7 +219,7 @@ func scanContainer(row sq.RowScanner, conn Conn) (CreatingContainer, CreatedCont
 			isHijacked,
 			conn,
 		), nil, nil, nil
-	case ContainerStateDestroying:
+	case atc.ContainerStateDestroying:
 		return nil, nil, newDestroyingContainer(
 			id,
 			handle,
@@ -227,7 +228,7 @@ func scanContainer(row sq.RowScanner, conn Conn) (CreatingContainer, CreatedCont
 			isDiscontinued,
 			conn,
 		), nil, nil
-	case ContainerStateFailed:
+	case atc.ContainerStateFailed:
 		return nil, nil, nil, newFailedContainer(
 			id,
 			handle,
@@ -240,32 +241,20 @@ func scanContainer(row sq.RowScanner, conn Conn) (CreatingContainer, CreatedCont
 	return nil, nil, nil, nil, nil
 }
 
-func (repository *containerRepository) FindFailedContainers() ([]FailedContainer, error) {
-	var failedContainers []FailedContainer
-
-	query, args, _ := selectContainers("c").
-		LeftJoin("builds b ON b.id = c.build_id").
-		LeftJoin("containers icc ON icc.id = c.image_check_container_id").
-		LeftJoin("containers igc ON igc.id = c.image_get_container_id").
-		Where(sq.Eq{"c.state": ContainerStateFailed}).
-		ToSql()
-
-	rows, err := repository.conn.Query(query, args...)
+func (repository *containerRepository) DestroyFailedContainers() (int, error) {
+	result, err := sq.Delete("containers").
+		Where(sq.Eq{"containers.state": atc.ContainerStateFailed}).
+		PlaceholderFormat(sq.Dollar).
+		RunWith(repository.conn).
+		Exec()
 	if err != nil {
-		return nil, err
-	}
-	defer Close(rows)
-
-	for rows.Next() {
-		_, _, _, failedContainer, err := scanContainer(rows, repository.conn)
-		if err != nil {
-			return nil, err
-		}
-
-		if failedContainer != nil {
-			failedContainers = append(failedContainers, failedContainer)
-		}
+		return 0, err
 	}
 
-	return failedContainers, nil
+	failedContainersLen, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+
+	return int(failedContainersLen), nil
 }

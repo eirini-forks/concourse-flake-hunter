@@ -22,31 +22,28 @@ import (
 
 var _ = Describe("Worker", func() {
 	var (
-		logger                     *lagertest.TestLogger
-		fakeVolumeClient           *wfakes.FakeVolumeClient
-		fakeImageFactory           *wfakes.FakeImageFactory
-		fakeClock                  *fakeclock.FakeClock
-		fakeDBResourceCacheFactory *dbfakes.FakeResourceCacheFactory
-		fakeResourceConfigFactory  *dbfakes.FakeResourceConfigFactory
-		fakeContainerProvider      *wfakes.FakeContainerProvider
-		activeContainers           int
-		resourceTypes              []atc.WorkerResourceType
-		platform                   string
-		tags                       atc.Tags
-		teamID                     int
-		workerName                 string
-		workerStartTime            int64
-		workerUptime               uint64
-		gardenWorker               Worker
-		workerVersion              string
-		fakeGardenClient           *gardenfakes.FakeClient
-		fakeBaggageClaimClient     *baggageclaimfakes.FakeClient
+		logger                 *lagertest.TestLogger
+		fakeVolumeClient       *wfakes.FakeVolumeClient
+		fakeClock              *fakeclock.FakeClock
+		fakeContainerProvider  *wfakes.FakeContainerProvider
+		activeContainers       int
+		resourceTypes          []atc.WorkerResourceType
+		platform               string
+		tags                   atc.Tags
+		teamID                 int
+		ephemeral              bool
+		workerName             string
+		workerStartTime        int64
+		workerUptime           uint64
+		gardenWorker           Worker
+		workerVersion          string
+		fakeGardenClient       *gardenfakes.FakeClient
+		fakeBaggageClaimClient *baggageclaimfakes.FakeClient
 	)
 
 	BeforeEach(func() {
 		logger = lagertest.NewTestLogger("test")
 		fakeVolumeClient = new(wfakes.FakeVolumeClient)
-		fakeImageFactory = new(wfakes.FakeImageFactory)
 		fakeClock = fakeclock.NewFakeClock(time.Unix(123, 456))
 		activeContainers = 42
 		resourceTypes = []atc.WorkerResourceType{
@@ -59,13 +56,12 @@ var _ = Describe("Worker", func() {
 		platform = "some-platform"
 		tags = atc.Tags{"some", "tags"}
 		teamID = 17
+		ephemeral = true
 		workerName = "some-worker"
 		workerStartTime = fakeClock.Now().Unix()
 		workerUptime = 0
 		workerVersion = "1.2.3"
 
-		fakeDBResourceCacheFactory = new(dbfakes.FakeResourceCacheFactory)
-		fakeResourceConfigFactory = new(dbfakes.FakeResourceConfigFactory)
 		fakeContainerProvider = new(wfakes.FakeContainerProvider)
 		fakeGardenClient = new(gardenfakes.FakeClient)
 		fakeBaggageClaimClient = new(baggageclaimfakes.FakeClient)
@@ -77,6 +73,7 @@ var _ = Describe("Worker", func() {
 		dbWorker.ResourceTypesReturns(resourceTypes)
 		dbWorker.PlatformReturns(platform)
 		dbWorker.TagsReturns(tags)
+		dbWorker.EphemeralReturns(ephemeral)
 		dbWorker.TeamIDReturns(teamID)
 		dbWorker.NameReturns(workerName)
 		dbWorker.StartTimeReturns(workerStartTime)

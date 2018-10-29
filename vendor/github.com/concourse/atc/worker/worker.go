@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -21,26 +20,10 @@ import (
 var ErrUnsupportedResourceType = errors.New("unsupported resource type")
 var ErrIncompatiblePlatform = errors.New("incompatible platform")
 var ErrMismatchedTags = errors.New("mismatched tags")
-var ErrNoVolumeManager = errors.New("worker does not support volume management")
 var ErrTeamMismatch = errors.New("mismatched team")
 var ErrNotImplemented = errors.New("Not implemented")
 
-type MalformedMetadataError struct {
-	UnmarshalError error
-}
-
-func (err MalformedMetadataError) Error() string {
-	return fmt.Sprintf("malformed image metadata: %s", err.UnmarshalError)
-}
-
-const certsVolumeName = "certificates"
-
-const ephemeralPropertyName = "concourse:ephemeral"
-const volumePropertyName = "concourse:volumes"
-const volumeMountsPropertyName = "concourse:volume-mounts"
 const userPropertyName = "user"
-const RawRootFSScheme = "raw"
-const ImageMetadataFile = "metadata.json"
 
 //go:generate counterfeiter . Worker
 
@@ -55,15 +38,14 @@ type Worker interface {
 	Tags() atc.Tags
 	Uptime() time.Duration
 	IsOwnedByTeam() bool
+	Ephemeral() bool
 	IsVersionCompatible(lager.Logger, *version.Version) bool
 
-	FindVolumeForResourceCache(logger lager.Logger, resourceCache *db.UsedResourceCache) (Volume, bool, error)
+	FindVolumeForResourceCache(logger lager.Logger, resourceCache db.UsedResourceCache) (Volume, bool, error)
 	FindVolumeForTaskCache(lager.Logger, int, int, string, string) (Volume, bool, error)
 
 	CertsVolume(lager.Logger) (volume Volume, found bool, err error)
-
 	GardenClient() garden.Client
-	BaggageclaimClient() baggageclaim.Client
 }
 
 type gardenWorker struct {
@@ -82,13 +64,13 @@ type gardenWorker struct {
 	teamID           int
 	name             string
 	startTime        int64
+	ephemeral        bool
 	version          *string
 }
 
 func NewGardenWorker(
 	gardenClient garden.Client,
 	baggageclaimClient baggageclaim.Client,
-	// reaperClient reaper.ReaperClient,
 	containerProvider ContainerProvider,
 	volumeClient VolumeClient,
 	dbWorker db.Worker,
@@ -110,16 +92,12 @@ func NewGardenWorker(
 		name:             dbWorker.Name(),
 		startTime:        dbWorker.StartTime(),
 		version:          dbWorker.Version(),
-		// reaperClient:     reaperClient,
+		ephemeral:        dbWorker.Ephemeral(),
 	}
 }
 
 func (worker *gardenWorker) GardenClient() garden.Client {
 	return worker.gardenClient
-}
-
-func (worker *gardenWorker) BaggageclaimClient() baggageclaim.Client {
-	return worker.baggageclaimClient
 }
 
 func (worker *gardenWorker) IsVersionCompatible(logger lager.Logger, comparedVersion *version.Version) bool {
@@ -167,7 +145,7 @@ func (worker *gardenWorker) FindResourceTypeByPath(path string) (atc.WorkerResou
 	return atc.WorkerResourceType{}, false
 }
 
-func (worker *gardenWorker) FindVolumeForResourceCache(logger lager.Logger, resourceCache *db.UsedResourceCache) (Volume, bool, error) {
+func (worker *gardenWorker) FindVolumeForResourceCache(logger lager.Logger, resourceCache db.UsedResourceCache) (Volume, bool, error) {
 	return worker.volumeClient.FindVolumeForResourceCache(logger, resourceCache)
 }
 
@@ -269,10 +247,6 @@ func (worker *gardenWorker) RunningWorkers(logger lager.Logger) ([]Worker, error
 	return nil, ErrNotImplemented
 }
 
-func (worker *gardenWorker) GetWorker(logger lager.Logger, name string) (Worker, error) {
-	return nil, ErrNotImplemented
-}
-
 func (worker *gardenWorker) Description() string {
 	messages := []string{
 		fmt.Sprintf("platform '%s'", worker.platform),
@@ -305,6 +279,10 @@ func (worker *gardenWorker) Uptime() time.Duration {
 	return worker.clock.Since(time.Unix(worker.startTime, 0))
 }
 
+func (worker *gardenWorker) Ephemeral() bool {
+	return worker.ephemeral
+}
+
 func (worker *gardenWorker) tagsMatch(tags []string) bool {
 	if len(worker.tags) > 0 && len(tags) == 0 {
 		return false
@@ -322,12 +300,4 @@ insert_coin:
 	}
 
 	return true
-}
-
-type artifactDestination struct {
-	destination Volume
-}
-
-func (wad *artifactDestination) StreamIn(path string, tarStream io.Reader) error {
-	return wad.destination.StreamIn(path, tarStream)
 }

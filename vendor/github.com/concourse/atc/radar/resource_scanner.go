@@ -3,6 +3,7 @@ package radar
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"time"
 
@@ -11,9 +12,12 @@ import (
 	"github.com/concourse/atc"
 	"github.com/concourse/atc/creds"
 	"github.com/concourse/atc/db"
+	"github.com/concourse/atc/metric"
 	"github.com/concourse/atc/resource"
 	"github.com/concourse/atc/worker"
 )
+
+var GlobalResourceCheckTimeout time.Duration
 
 type resourceScanner struct {
 	clock                             clock.Clock
@@ -147,7 +151,7 @@ func (scanner *resourceScanner) scan(logger lager.Logger, resourceName string, f
 		return 0, err
 	}
 
-	err = savedResource.SetResourceConfig(resourceConfigCheckSession.ResourceConfig().ID)
+	err = savedResource.SetResourceConfig(resourceConfigCheckSession.ResourceConfig().ID())
 	if err != nil {
 		logger.Error("failed-to-set-resource-config-id-on-resource", err)
 		scanner.setResourceCheckError(logger, savedResource, err)
@@ -263,6 +267,7 @@ func (scanner *resourceScanner) check(
 		resourceTypes,
 		worker.NoopImageFetchingDelegate{},
 	)
+
 	if err != nil {
 		logger.Error("failed-to-initialize-new-container", err)
 		scanner.setResourceCheckError(logger, savedResource, err)
@@ -273,9 +278,27 @@ func (scanner *resourceScanner) check(
 		"from": fromVersion,
 	})
 
-	newVersions, err := res.Check(source, fromVersion)
+	timeout, err := scanner.parseResourceCheckTimeoutOrDefault(savedResource.CheckTimeout())
+	if err != nil {
+		scanner.setResourceCheckError(logger, savedResource, err)
+		logger.Error("failed-to-read-check-timeout", err)
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	newVersions, err := res.Check(ctx, source, fromVersion)
+	if err == context.DeadlineExceeded {
+		err = fmt.Errorf("Timed out after %v while checking for new versions - perhaps increase your resource check timeout?", timeout)
+	}
 
 	scanner.setResourceCheckError(logger, savedResource, err)
+	metric.ResourceCheck{
+		PipelineName: scanner.dbPipeline.Name(),
+		ResourceName: savedResource.Name(),
+		TeamName:     scanner.dbPipeline.TeamName(),
+		Success:      err == nil,
+	}.Emit(logger)
 
 	if err != nil {
 		if rErr, ok := err.(resource.ErrResourceScriptFailed); ok {
@@ -315,6 +338,20 @@ func swallowErrResourceScriptFailed(err error) error {
 		return nil
 	}
 	return err
+}
+
+func (scanner *resourceScanner) parseResourceCheckTimeoutOrDefault(checkTimeout string) (time.Duration, error) {
+	interval := GlobalResourceCheckTimeout
+	if checkTimeout != "" {
+		configuredInterval, err := time.ParseDuration(checkTimeout)
+		if err != nil {
+			return 0, err
+		}
+
+		interval = configuredInterval
+	}
+
+	return interval, nil
 }
 
 func (scanner *resourceScanner) checkInterval(checkEvery string) (time.Duration, error) {

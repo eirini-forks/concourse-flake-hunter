@@ -158,6 +158,103 @@ run: {path: a/file}
 			})
 		})
 
+		Context("when container limits are specified", func() {
+			Context("when memory and cpu limits are correctly specified", func() {
+				It("successfully parses the limits with memory units", func() {
+					data := []byte(`
+platform: beos
+container_limits: { cpu: 1024, memory: 1KB }
+
+run: {path: a/file}
+`)
+					task, err := NewTaskConfig(data)
+					Expect(err).ToNot(HaveOccurred())
+					cpu := uint64(1024)
+					memory := uint64(1024)
+					Expect(task.Limits).To(Equal(ContainerLimits{
+						CPU:    &cpu,
+						Memory: &memory,
+					}))
+				})
+
+				It("successfully parses the limits without memory units", func() {
+					data := []byte(`
+platform: beos
+container_limits: { cpu: 1024, memory: 209715200 }
+
+run: {path: a/file}
+`)
+					task, err := NewTaskConfig(data)
+					Expect(err).ToNot(HaveOccurred())
+					cpu := uint64(1024)
+					memory := uint64(209715200)
+					Expect(task.Limits).To(Equal(ContainerLimits{
+						CPU:    &cpu,
+						Memory: &memory,
+					}))
+				})
+			})
+
+			Context("when either one of memory or cpu is correctly specified", func() {
+				It("parses the provided memory limit without any errors", func() {
+					data := []byte(`
+platform: beos
+container_limits: { memory: 1KB }
+
+run: {path: a/file}
+`)
+					task, err := NewTaskConfig(data)
+					Expect(err).ToNot(HaveOccurred())
+					memory := uint64(1024)
+					Expect(task.Limits).To(Equal(ContainerLimits{
+						Memory: &memory,
+					}))
+				})
+
+				It("parses the provided cpu limit without any errors", func() {
+					data := []byte(`
+platform: beos
+container_limits: { cpu: 355 }
+
+run: {path: a/file}
+`)
+					task, err := NewTaskConfig(data)
+					Expect(err).ToNot(HaveOccurred())
+					cpu := uint64(355)
+					Expect(task.Limits).To(Equal(ContainerLimits{
+						CPU: &cpu,
+					}))
+				})
+			})
+
+			Context("when invalid memory limit value is provided", func() {
+				It("throws an error and does not continue", func() {
+					data := []byte(`
+platform: beos
+container_limits: { cpu: 1024, memory: abc1000kb  }
+
+run: {path: a/file}
+`)
+					_, err := NewTaskConfig(data)
+					Expect(err).To(MatchError(ContainSubstring("could not parse container memory limit")))
+				})
+
+			})
+
+			Context("when invalid cpu limit value is provided", func() {
+				It("throws an error and does not continue", func() {
+					data := []byte(`
+platform: beos
+container_limits: { cpu: str1ng-cpu-l1mit, memory: 20MB}
+
+run: {path: a/file}
+`)
+					_, err := NewTaskConfig(data)
+					Expect(err).To(MatchError(ContainSubstring("cpu limit must be an integer")))
+				})
+			})
+		})
+
 		Context("when the task has inputs", func() {
 			BeforeEach(func() {
 				validConfig.Inputs = append(validConfig.Inputs, TaskInputConfig{Name: "concourse"})
@@ -618,7 +715,6 @@ run: {path: a/file}
 			}.Merge(TaskConfig{
 				Params: map[string]string{
 					"FOO": "3",
-					"BAZ": "4",
 				},
 			})).To(
 
@@ -627,10 +723,67 @@ run: {path: a/file}
 					Params: map[string]string{
 						"FOO": "3",
 						"BAR": "2",
-						"BAZ": "4",
 					},
 				}))
+		})
 
+		It("emits a warning if params key in pipeline.yml is not defined in task.yml", func() {
+			config, warnings, err := TaskConfig{
+				RootfsURI: "some-image",
+				Params: map[string]string{
+					"FOO": "1",
+					"BAR": "2",
+				},
+			}.Merge(TaskConfig{
+				Params: map[string]string{
+					"FOO": "3",
+					"BAZ": "4",
+				},
+			})
+
+			Expect(warnings).To(HaveLen(1))
+			Expect(warnings[0]).To(ContainSubstring("BAZ was defined in pipeline but missing from task file"))
+			Expect(config.Params).To(Equal(map[string]string{
+				"FOO": "3",
+				"BAR": "2",
+				"BAZ": "4",
+			}))
+			Expect(err).To(BeNil())
+		})
+
+		It("merges into nil params without panicking", func() {
+			merged, warnings, err := TaskConfig{
+				Params: map[string]string{
+					"FOO": "3",
+				},
+			}.Merge(TaskConfig{
+				RootfsURI: "some-image",
+			})
+			Expect(err).To(BeNil())
+			Expect(warnings).To(BeEmpty())
+			Expect(merged).To(Equal(TaskConfig{
+				RootfsURI: "some-image",
+				Params: map[string]string{
+					"FOO": "3",
+				},
+			}))
+
+			merged, warnings, err = TaskConfig{
+				RootfsURI: "some-image",
+			}.Merge(TaskConfig{
+				Params: map[string]string{
+					"FOO": "3",
+				},
+			})
+			Expect(err).To(BeNil())
+			Expect(merged).To(Equal(TaskConfig{
+				RootfsURI: "some-image",
+				Params: map[string]string{
+					"FOO": "3",
+				},
+			}))
+			Expect(warnings).To(HaveLen(1))
+			Expect(warnings[0]).To(ContainSubstring("FOO was defined in pipeline but missing from task file"))
 		})
 
 		It("overrides the platform", func() {

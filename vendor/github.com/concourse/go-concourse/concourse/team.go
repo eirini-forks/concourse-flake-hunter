@@ -3,16 +3,12 @@ package concourse
 import (
 	"github.com/concourse/atc"
 	"github.com/concourse/go-concourse/concourse/internal"
-	"github.com/concourse/skymarshal/provider"
 )
 
 //go:generate counterfeiter . Team
 
 type Team interface {
 	Name() string
-
-	ListAuthMethods() ([]provider.AuthMethod, error)
-	AuthToken() (provider.AuthToken, error)
 
 	CreateOrUpdate(team atc.Team) (atc.Team, bool, bool, error)
 	RenameTeam(teamName, name string) (bool, error)
@@ -30,7 +26,7 @@ type Team interface {
 	UnpauseResource(pipelineName string, resourceName string) (bool, error)
 	ListPipelines() ([]atc.Pipeline, error)
 	PipelineConfig(pipelineName string) (atc.Config, atc.RawConfig, string, bool, error)
-	CreateOrUpdatePipelineConfig(pipelineName string, configVersion string, passedConfig []byte) (bool, bool, []ConfigWarning, error)
+	CreateOrUpdatePipelineConfig(pipelineName string, configVersion string, passedConfig []byte, checkCredentials bool) (bool, bool, []ConfigWarning, error)
 
 	CreatePipelineBuild(pipelineName string, plan atc.Plan) (atc.Build, error)
 
@@ -45,10 +41,15 @@ type Team interface {
 	PauseJob(pipelineName string, jobName string) (bool, error)
 	UnpauseJob(pipelineName string, jobName string) (bool, error)
 
+	ClearTaskCache(pipelineName string, jobName string, stepName string, cachePath string) (int64, error)
+
 	Resource(pipelineName string, resourceName string) (atc.Resource, bool, error)
 	VersionedResourceTypes(pipelineName string) (atc.VersionedResourceTypes, bool, error)
 	ResourceVersions(pipelineName string, resourceName string, page Page) ([]atc.VersionedResource, Pagination, bool, error)
 	CheckResource(pipelineName string, resourceName string, version atc.Version) (bool, error)
+	CheckResourceType(pipelineName string, resourceTypeName string) (bool, error)
+	DisableResourceVersion(pipelineName string, resourceName string, resourceVersionID int) (bool, error)
+	EnableResourceVersion(pipelineName string, resourceName string, resourceVersionID int) (bool, error)
 
 	BuildsWithVersionAsInput(pipelineName string, resourceName string, resourceVersionID int) ([]atc.Build, bool, error)
 	BuildsWithVersionAsOutput(pipelineName string, resourceName string, resourceVersionID int) ([]atc.Build, bool, error)

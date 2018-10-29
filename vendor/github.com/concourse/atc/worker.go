@@ -9,7 +9,6 @@ type Worker struct {
 	// not garden_addr, for backwards-compatibility
 	GardenAddr      string `json:"addr"`
 	BaggageclaimURL string `json:"baggageclaim_url"`
-	//	ReaperAddr      string `json:"reaper_url"`
 
 	CertsPath *string `json:"certs_path,omitempty"`
 
@@ -28,6 +27,7 @@ type Worker struct {
 	Name      string   `json:"name"`
 	Version   string   `json:"version"`
 	StartTime int64    `json:"start_time"`
+	Ephemeral bool     `json:"ephemeral"`
 	State     string   `json:"state"`
 }
 

@@ -141,18 +141,16 @@ var _ = Describe("APIAuthWrappa", func() {
 
 			expectedHandlers = rata.Handlers{
 				//unauthenticated / delegating to handler
-				atc.GetInfo:               unauthenticated(inputHandlers[atc.GetInfo]),
-				atc.DownloadCLI:           unauthenticated(inputHandlers[atc.DownloadCLI]),
-				atc.CheckResourceWebHook:  unauthenticated(inputHandlers[atc.CheckResourceWebHook]),
-				atc.ListAllPipelines:      unauthenticated(inputHandlers[atc.ListAllPipelines]),
-				atc.ListBuilds:            unauthenticated(inputHandlers[atc.ListBuilds]),
-				atc.ListPipelines:         unauthenticated(inputHandlers[atc.ListPipelines]),
-				atc.ListAllJobs:           unauthenticated(inputHandlers[atc.ListAllJobs]),
-				atc.ListTeams:             unauthenticated(inputHandlers[atc.ListTeams]),
-				atc.MainJobBadge:          unauthenticated(inputHandlers[atc.MainJobBadge]),
-				atc.LegacyListAuthMethods: unauthenticated(inputHandlers[atc.LegacyListAuthMethods]),
-				atc.LegacyGetAuthToken:    unauthenticated(inputHandlers[atc.LegacyGetAuthToken]),
-				atc.LegacyGetUser:         unauthenticated(inputHandlers[atc.LegacyGetUser]),
+				atc.GetInfo:              unauthenticated(inputHandlers[atc.GetInfo]),
+				atc.DownloadCLI:          unauthenticated(inputHandlers[atc.DownloadCLI]),
+				atc.CheckResourceWebHook: unauthenticated(inputHandlers[atc.CheckResourceWebHook]),
+				atc.ListAllPipelines:     unauthenticated(inputHandlers[atc.ListAllPipelines]),
+				atc.ListBuilds:           unauthenticated(inputHandlers[atc.ListBuilds]),
+				atc.ListPipelines:        unauthenticated(inputHandlers[atc.ListPipelines]),
+				atc.ListAllJobs:          unauthenticated(inputHandlers[atc.ListAllJobs]),
+				atc.ListAllResources:     unauthenticated(inputHandlers[atc.ListAllResources]),
+				atc.ListTeams:            unauthenticated(inputHandlers[atc.ListTeams]),
+				atc.MainJobBadge:         unauthenticated(inputHandlers[atc.MainJobBadge]),
 
 				// authorized or public pipeline
 				atc.GetBuild:       doesNotCheckIfPrivateJob(inputHandlers[atc.GetBuild]),
@@ -211,11 +209,13 @@ var _ = Describe("APIAuthWrappa", func() {
 				atc.DestroyTeam:     authenticated(inputHandlers[atc.DestroyTeam]),
 
 				// authenticated and is admin
-				atc.GetLogLevel: authenticatedAndAdmin(inputHandlers[atc.GetLogLevel]),
-				atc.SetLogLevel: authenticatedAndAdmin(inputHandlers[atc.SetLogLevel]),
+				atc.GetLogLevel:  authenticatedAndAdmin(inputHandlers[atc.GetLogLevel]),
+				atc.SetLogLevel:  authenticatedAndAdmin(inputHandlers[atc.SetLogLevel]),
+				atc.GetInfoCreds: authenticatedAndAdmin(inputHandlers[atc.GetInfoCreds]),
 
 				// authorized (requested team matches resource team)
 				atc.CheckResource:          authorized(inputHandlers[atc.CheckResource]),
+				atc.CheckResourceType:      authorized(inputHandlers[atc.CheckResourceType]),
 				atc.CreateJobBuild:         authorized(inputHandlers[atc.CreateJobBuild]),
 				atc.DeletePipeline:         authorized(inputHandlers[atc.DeletePipeline]),
 				atc.DisableResourceVersion: authorized(inputHandlers[atc.DisableResourceVersion]),
@@ -235,6 +235,7 @@ var _ = Describe("APIAuthWrappa", func() {
 				atc.ExposePipeline:         authorized(inputHandlers[atc.ExposePipeline]),
 				atc.HidePipeline:           authorized(inputHandlers[atc.HidePipeline]),
 				atc.CreatePipelineBuild:    authorized(inputHandlers[atc.CreatePipelineBuild]),
+				atc.ClearTaskCache:         authorized(inputHandlers[atc.ClearTaskCache]),
 			}
 		})
 

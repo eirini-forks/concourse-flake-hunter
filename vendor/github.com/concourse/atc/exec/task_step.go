@@ -88,7 +88,8 @@ type TaskStep struct {
 
 	resourceTypes creds.VersionedResourceTypes
 
-	variables creds.Variables
+	variables     creds.Variables
+	defaultLimits atc.ContainerLimits
 
 	succeeded bool
 }
@@ -111,6 +112,7 @@ func NewTaskStep(
 	containerMetadata db.ContainerMetadata,
 	resourceTypes creds.VersionedResourceTypes,
 	variables creds.Variables,
+	defaultLimits atc.ContainerLimits,
 ) Step {
 	return &TaskStep{
 		privileged:        privileged,
@@ -130,6 +132,7 @@ func NewTaskStep(
 		containerMetadata: containerMetadata,
 		resourceTypes:     resourceTypes,
 		variables:         variables,
+		defaultLimits:     defaultLimits,
 	}
 }
 
@@ -154,8 +157,19 @@ func (action *TaskStep) Run(ctx context.Context, state RunState) error {
 	repository := state.Artifacts()
 
 	config, err := action.configSource.FetchConfig(repository)
+
+	for _, warning := range action.configSource.Warnings() {
+		fmt.Fprintln(action.delegate.Stderr(), "[WARNING]", warning)
+	}
+
 	if err != nil {
 		return err
+	}
+	if config.Limits.CPU == nil {
+		config.Limits.CPU = action.defaultLimits.CPU
+	}
+	if config.Limits.Memory == nil {
+		config.Limits.Memory = action.defaultLimits.Memory
 	}
 
 	action.delegate.Initializing(logger, config)
@@ -197,20 +211,12 @@ func (action *TaskStep) Run(ctx context.Context, state RunState) error {
 		return nil
 	}
 
-	// for backwards compatibility with containers
-	// that had their task process name set as property
-	var processID string
-	processID, err = container.Property(taskProcessPropertyName)
-	if err != nil {
-		processID = taskProcessID
-	}
-
 	processIO := garden.ProcessIO{
 		Stdout: action.delegate.Stdout(),
 		Stderr: action.delegate.Stderr(),
 	}
 
-	process, err := container.Attach(processID, processIO)
+	process, err := container.Attach(taskProcessID, processIO)
 	if err == nil {
 		logger.Info("already-running")
 	} else {
@@ -324,6 +330,7 @@ func (action *TaskStep) containerSpec(logger lager.Logger, repository *worker.Ar
 		Tags:      action.tags,
 		TeamID:    action.teamID,
 		ImageSpec: imageSpec,
+		Limits:    worker.ContainerLimits(config.Limits),
 		User:      config.Run.User,
 		Dir:       action.artifactsRoot,
 		Env:       action.envForParams(params),

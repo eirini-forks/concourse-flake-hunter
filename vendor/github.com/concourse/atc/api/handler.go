@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 	"path/filepath"
-	"time"
 
 	"code.cloudfoundry.org/lager"
 	"github.com/tedsuo/rata"
@@ -15,7 +14,6 @@ import (
 	"github.com/concourse/atc/api/containerserver"
 	"github.com/concourse/atc/api/infoserver"
 	"github.com/concourse/atc/api/jobserver"
-	"github.com/concourse/atc/api/legacyserver"
 	"github.com/concourse/atc/api/loglevelserver"
 	"github.com/concourse/atc/api/pipelineserver"
 	"github.com/concourse/atc/api/resourceserver"
@@ -39,11 +37,10 @@ func NewHandler(
 
 	wrapper wrappa.Wrappa,
 
-	oAuthBaseURL string,
-
 	dbTeamFactory db.TeamFactory,
 	dbPipelineFactory db.PipelineFactory,
 	dbJobFactory db.JobFactory,
+	dbResourceFactory db.ResourceFactory,
 	dbWorkerFactory db.WorkerFactory,
 	volumeRepository db.VolumeRepository,
 	containerRepository db.ContainerRepository,
@@ -63,14 +60,13 @@ func NewHandler(
 
 	sink *lager.ReconfigurableSink,
 
-	expire time.Duration,
-
 	isTLSEnabled bool,
 
 	cliDownloadsDir string,
 	version string,
 	workerVersion string,
 	variablesFactory creds.VariablesFactory,
+	credsManagers creds.Managers,
 	interceptTimeoutFactory containerserver.InterceptTimeoutFactory,
 ) (http.Handler, error) {
 
@@ -85,18 +81,17 @@ func NewHandler(
 
 	buildServer := buildserver.NewServer(logger, externalURL, peerURL, engine, workerClient, dbTeamFactory, dbBuildFactory, eventHandlerFactory, drain)
 	jobServer := jobserver.NewServer(logger, schedulerFactory, externalURL, variablesFactory, dbJobFactory)
-	resourceServer := resourceserver.NewServer(logger, scannerFactory, variablesFactory)
+	resourceServer := resourceserver.NewServer(logger, scannerFactory, variablesFactory, dbResourceFactory)
 	versionServer := versionserver.NewServer(logger, externalURL)
 	pipelineServer := pipelineserver.NewServer(logger, dbTeamFactory, dbPipelineFactory, externalURL, engine)
-	configServer := configserver.NewServer(logger, dbTeamFactory)
+	configServer := configserver.NewServer(logger, dbTeamFactory, variablesFactory)
 	workerServer := workerserver.NewServer(logger, dbTeamFactory, dbWorkerFactory, workerProvider)
 	logLevelServer := loglevelserver.NewServer(logger, sink)
 	cliServer := cliserver.NewServer(logger, absCLIDownloadsDir)
 	containerServer := containerserver.NewServer(logger, workerClient, variablesFactory, interceptTimeoutFactory, containerRepository, destroyer)
 	volumesServer := volumeserver.NewServer(logger, volumeRepository, destroyer)
 	teamServer := teamserver.NewServer(logger, dbTeamFactory, externalURL)
-	infoServer := infoserver.NewServer(logger, version, workerVersion)
-	legacyServer := legacyserver.NewServer(logger)
+	infoServer := infoserver.NewServer(logger, version, workerVersion, credsManagers)
 
 	handlers := map[string]http.Handler{
 		atc.GetConfig:  http.HandlerFunc(configServer.GetConfig),
@@ -123,7 +118,12 @@ func NewHandler(
 		atc.PauseJob:       pipelineHandlerFactory.HandlerFor(jobServer.PauseJob),
 		atc.UnpauseJob:     pipelineHandlerFactory.HandlerFor(jobServer.UnpauseJob),
 		atc.JobBadge:       pipelineHandlerFactory.HandlerFor(jobServer.JobBadge),
-		atc.MainJobBadge:   mainredirect.Handler{atc.Routes, atc.JobBadge},
+		atc.MainJobBadge: mainredirect.Handler{
+			Routes: atc.Routes,
+			Route:  atc.JobBadge,
+		},
+
+		atc.ClearTaskCache: pipelineHandlerFactory.HandlerFor(jobServer.ClearTaskCache),
 
 		atc.ListAllPipelines:    http.HandlerFunc(pipelineServer.ListAllPipelines),
 		atc.ListPipelines:       http.HandlerFunc(pipelineServer.ListPipelines),
@@ -140,6 +140,7 @@ func NewHandler(
 		atc.CreatePipelineBuild: pipelineHandlerFactory.HandlerFor(pipelineServer.CreateBuild),
 		atc.PipelineBadge:       pipelineHandlerFactory.HandlerFor(pipelineServer.PipelineBadge),
 
+		atc.ListAllResources:     http.HandlerFunc(resourceServer.ListAllResources),
 		atc.ListResources:        pipelineHandlerFactory.HandlerFor(resourceServer.ListResources),
 		atc.ListResourceTypes:    pipelineHandlerFactory.HandlerFor(resourceServer.ListVersionedResourceTypes),
 		atc.GetResource:          pipelineHandlerFactory.HandlerFor(resourceServer.GetResource),
@@ -147,6 +148,7 @@ func NewHandler(
 		atc.UnpauseResource:      pipelineHandlerFactory.HandlerFor(resourceServer.UnpauseResource),
 		atc.CheckResource:        pipelineHandlerFactory.HandlerFor(resourceServer.CheckResource),
 		atc.CheckResourceWebHook: pipelineHandlerFactory.HandlerFor(resourceServer.CheckResourceWebHook),
+		atc.CheckResourceType:    pipelineHandlerFactory.HandlerFor(resourceServer.CheckResourceType),
 
 		atc.ListResourceVersions:          pipelineHandlerFactory.HandlerFor(versionServer.ListResourceVersions),
 		atc.GetResourceVersion:            pipelineHandlerFactory.HandlerFor(versionServer.GetResourceVersion),
@@ -167,8 +169,9 @@ func NewHandler(
 		atc.SetLogLevel: http.HandlerFunc(logLevelServer.SetMinLevel),
 		atc.GetLogLevel: http.HandlerFunc(logLevelServer.GetMinLevel),
 
-		atc.DownloadCLI: http.HandlerFunc(cliServer.Download),
-		atc.GetInfo:     http.HandlerFunc(infoServer.Info),
+		atc.DownloadCLI:  http.HandlerFunc(cliServer.Download),
+		atc.GetInfo:      http.HandlerFunc(infoServer.Info),
+		atc.GetInfoCreds: http.HandlerFunc(infoServer.Creds),
 
 		atc.ListContainers:           teamHandlerFactory.HandlerFor(containerServer.ListContainers),
 		atc.GetContainer:             teamHandlerFactory.HandlerFor(containerServer.GetContainer),
@@ -179,10 +182,6 @@ func NewHandler(
 		atc.ListVolumes:           teamHandlerFactory.HandlerFor(volumesServer.ListVolumes),
 		atc.ListDestroyingVolumes: http.HandlerFunc(volumesServer.ListDestroyingVolumes),
 		atc.ReportWorkerVolumes:   http.HandlerFunc(volumesServer.ReportWorkerVolumes),
-
-		atc.LegacyListAuthMethods: http.HandlerFunc(legacyServer.ListAuthMethods),
-		atc.LegacyGetAuthToken:    http.HandlerFunc(legacyServer.GetAuthToken),
-		atc.LegacyGetUser:         http.HandlerFunc(legacyServer.GetUser),
 
 		atc.ListTeams:      http.HandlerFunc(teamServer.ListTeams),
 		atc.SetTeam:        http.HandlerFunc(teamServer.SetTeam),

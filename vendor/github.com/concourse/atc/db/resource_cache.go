@@ -11,7 +11,7 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/concourse/atc"
-	"github.com/lib/pq"
+	"github.com/concourse/atc/db/lock"
 )
 
 var ErrResourceCacheAlreadyExists = errors.New("resource-cache-already-exists")
@@ -23,54 +23,14 @@ var ErrResourceCacheDisappeared = errors.New("resource-cache-disappeared")
 // type in a pipeline.
 //
 // ResourceCaches are garbage-collected by gc.ResourceCacheCollector.
-type ResourceCache struct {
-	ResourceConfig ResourceConfig // The resource configuration.
-	Version        atc.Version    // The version of the resource.
-	Params         atc.Params     // The params used when fetching the version.
+type ResourceCacheDescriptor struct {
+	ResourceConfigDescriptor ResourceConfigDescriptor // The resource configuration.
+	Version                  atc.Version              // The version of the resource.
+	Params                   atc.Params               // The params used when fetching the version.
 }
 
-// UsedResourceCache is created whenever a ResourceCache is Created and/or
-// Used.
-//
-// So long as the UsedResourceCache exists, the underlying ResourceCache can
-// not be removed.
-//
-// UsedResourceCaches become unused by the gc.ResourceCacheCollector, which may
-// then lead to the ResourceCache being garbage-collected.
-//
-// See FindOrCreateForBuild, FindOrCreateForResource, and
-// FindOrCreateForResourceType for more information on when it becomes unused.
-type UsedResourceCache struct {
-	ID             int
-	ResourceConfig *UsedResourceConfig
-	Version        atc.Version
-}
-
-func (cache *UsedResourceCache) Destroy(tx Tx) (bool, error) {
-	rows, err := psql.Delete("resource_caches").
-		Where(sq.Eq{
-			"id": cache.ID,
-		}).
-		RunWith(tx).
-		Exec()
-	if err != nil {
-		return false, err
-	}
-
-	affected, err := rows.RowsAffected()
-	if err != nil {
-		return false, err
-	}
-
-	if affected == 0 {
-		return false, ErrResourceCacheDisappeared
-	}
-
-	return true, nil
-}
-
-func (cache ResourceCache) Find(tx Tx) (*UsedResourceCache, bool, error) {
-	usedResourceConfig, found, err := cache.ResourceConfig.Find(tx)
+func (cache *ResourceCacheDescriptor) find(tx Tx, lockFactory lock.LockFactory, conn Conn) (UsedResourceCache, bool, error) {
+	resourceConfig, found, err := cache.ResourceConfigDescriptor.find(tx, lockFactory, conn)
 	if err != nil {
 		return nil, false, err
 	}
@@ -79,19 +39,21 @@ func (cache ResourceCache) Find(tx Tx) (*UsedResourceCache, bool, error) {
 		return nil, false, nil
 	}
 
-	return cache.findWithResourceConfig(tx, usedResourceConfig)
+	return cache.findWithResourceConfig(tx, resourceConfig, lockFactory, conn)
 }
 
-func (cache ResourceCache) findOrCreate(
+func (cache *ResourceCacheDescriptor) findOrCreate(
 	logger lager.Logger,
 	tx Tx,
-) (*UsedResourceCache, error) {
-	usedResourceConfig, err := cache.ResourceConfig.findOrCreate(logger, tx)
+	lockFactory lock.LockFactory,
+	conn Conn,
+) (UsedResourceCache, error) {
+	resourceConfig, err := cache.ResourceConfigDescriptor.findOrCreate(logger, tx, lockFactory, conn)
 	if err != nil {
 		return nil, err
 	}
 
-	rc, found, err := cache.findWithResourceConfig(tx, usedResourceConfig)
+	rc, found, err := cache.findWithResourceConfig(tx, resourceConfig, lockFactory, conn)
 	if err != nil {
 		return nil, err
 	}
@@ -105,44 +67,44 @@ func (cache ResourceCache) findOrCreate(
 				"params_hash",
 			).
 			Values(
-				usedResourceConfig.ID,
+				resourceConfig.ID(),
 				cache.version(),
 				paramsHash(cache.Params),
 			).
-			Suffix("RETURNING id").
+			Suffix(`
+				ON CONFLICT (resource_config_id, md5(version), params_hash) DO UPDATE SET
+					resource_config_id = ?,
+					version = ?,
+					params_hash = ?
+				RETURNING id
+			`, resourceConfig.ID(), cache.version(), paramsHash(cache.Params)).
 			RunWith(tx).
 			QueryRow().
 			Scan(&id)
 		if err != nil {
-			if pqErr, ok := err.(*pq.Error); ok && pqErr.Code.Name() == pqFKeyViolationErrCode {
-				return nil, ErrSafeRetryFindOrCreate
-			}
-
-			if pqErr, ok := err.(*pq.Error); ok && pqErr.Code.Name() == pqUniqueViolationErrCode {
-				return nil, ErrSafeRetryFindOrCreate
-			}
-
 			return nil, err
 		}
 
-		rc = &UsedResourceCache{
-			ID:             id,
-			ResourceConfig: usedResourceConfig,
-			Version:        cache.Version,
+		rc = &usedResourceCache{
+			id:             id,
+			resourceConfig: resourceConfig,
+			version:        cache.Version,
+			lockFactory:    lockFactory,
+			conn:           conn,
 		}
 	}
 
 	return rc, nil
 }
 
-func (cache ResourceCache) use(
+func (cache *ResourceCacheDescriptor) use(
 	logger lager.Logger,
 	tx Tx,
-	rc *UsedResourceCache,
+	rc UsedResourceCache,
 	user ResourceCacheUser,
 ) error {
 	cols := user.SQLMap()
-	cols["resource_cache_id"] = rc.ID
+	cols["resource_cache_id"] = rc.ID()
 
 	var resourceCacheUseExists int
 	err := psql.Select("1").
@@ -169,13 +131,19 @@ func (cache ResourceCache) use(
 	return err
 }
 
-func (cache ResourceCache) findWithResourceConfig(tx Tx, resourceConfig *UsedResourceConfig) (*UsedResourceCache, bool, error) {
+func (cache *ResourceCacheDescriptor) findWithResourceConfig(tx Tx, resourceConfig ResourceConfig, lockFactory lock.LockFactory, conn Conn) (UsedResourceCache, bool, error) {
 	var id int
-	err := psql.Select("id").From("resource_caches").Where(sq.Eq{
-		"resource_config_id": resourceConfig.ID,
-		"version":            cache.version(),
-		"params_hash":        paramsHash(cache.Params),
-	}).Suffix("FOR SHARE").RunWith(tx).QueryRow().Scan(&id)
+	err := psql.Select("id").
+		From("resource_caches").
+		Where(sq.Eq{
+			"resource_config_id": resourceConfig.ID(),
+			"version":            cache.version(),
+			"params_hash":        paramsHash(cache.Params),
+		}).
+		Suffix("FOR SHARE").
+		RunWith(tx).
+		QueryRow().
+		Scan(&id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, false, nil
@@ -184,24 +152,18 @@ func (cache ResourceCache) findWithResourceConfig(tx Tx, resourceConfig *UsedRes
 		return nil, false, err
 	}
 
-	return &UsedResourceCache{
-		ID:             id,
-		ResourceConfig: resourceConfig,
-		Version:        cache.Version,
+	return &usedResourceCache{
+		id:             id,
+		resourceConfig: resourceConfig,
+		version:        cache.Version,
+		lockFactory:    lockFactory,
+		conn:           conn,
 	}, true, nil
 }
 
-func (cache ResourceCache) version() string {
+func (cache *ResourceCacheDescriptor) version() string {
 	j, _ := json.Marshal(cache.Version)
 	return string(j)
-}
-
-func (cache *UsedResourceCache) BaseResourceType() *UsedBaseResourceType {
-	if cache.ResourceConfig.CreatedByBaseResourceType != nil {
-		return cache.ResourceConfig.CreatedByBaseResourceType
-	}
-
-	return cache.ResourceConfig.CreatedByResourceCache.BaseResourceType()
 }
 
 func paramsHash(p atc.Params) string {
@@ -210,6 +172,73 @@ func paramsHash(p atc.Params) string {
 	}
 
 	return mapHash(atc.Params{})
+}
+
+// UsedResourceCache is created whenever a ResourceCache is Created and/or
+// Used.
+//
+// So long as the UsedResourceCache exists, the underlying ResourceCache can
+// not be removed.
+//
+// UsedResourceCaches become unused by the gc.ResourceCacheCollector, which may
+// then lead to the ResourceCache being garbage-collected.
+//
+// See FindOrCreateForBuild, FindOrCreateForResource, and
+// FindOrCreateForResourceType for more information on when it becomes unused.
+
+//go:generate counterfeiter . UsedResourceCache
+
+type UsedResourceCache interface {
+	ID() int
+	ResourceConfig() ResourceConfig
+	Version() atc.Version
+
+	Destroy(Tx) (bool, error)
+	BaseResourceType() *UsedBaseResourceType
+}
+
+type usedResourceCache struct {
+	id             int
+	resourceConfig ResourceConfig
+	version        atc.Version
+
+	lockFactory lock.LockFactory
+	conn        Conn
+}
+
+func (cache *usedResourceCache) ID() int                        { return cache.id }
+func (cache *usedResourceCache) ResourceConfig() ResourceConfig { return cache.resourceConfig }
+func (cache *usedResourceCache) Version() atc.Version           { return cache.version }
+
+func (cache *usedResourceCache) Destroy(tx Tx) (bool, error) {
+	rows, err := psql.Delete("resource_caches").
+		Where(sq.Eq{
+			"id": cache.id,
+		}).
+		RunWith(tx).
+		Exec()
+	if err != nil {
+		return false, err
+	}
+
+	affected, err := rows.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+
+	if affected == 0 {
+		return false, ErrResourceCacheDisappeared
+	}
+
+	return true, nil
+}
+
+func (cache *usedResourceCache) BaseResourceType() *UsedBaseResourceType {
+	if cache.resourceConfig.CreatedByBaseResourceType() != nil {
+		return cache.resourceConfig.CreatedByBaseResourceType()
+	}
+
+	return cache.resourceConfig.CreatedByResourceCache().BaseResourceType()
 }
 
 func mapHash(m map[string]interface{}) string {

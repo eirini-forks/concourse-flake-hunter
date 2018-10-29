@@ -28,7 +28,7 @@ const (
 	BuildStatusErrored   BuildStatus = "errored"
 )
 
-var buildsQuery = psql.Select("b.id, b.name, b.job_id, b.team_id, b.status, b.manually_triggered, b.scheduled, b.engine, b.engine_metadata, b.public_plan, b.start_time, b.end_time, b.reap_time, j.name, b.pipeline_id, p.name, t.name, b.nonce, b.tracked_by").
+var buildsQuery = psql.Select("b.id, b.name, b.job_id, b.team_id, b.status, b.manually_triggered, b.scheduled, b.engine, b.engine_metadata, b.public_plan, b.start_time, b.end_time, b.reap_time, j.name, b.pipeline_id, p.name, t.name, b.nonce, b.tracked_by, b.drained").
 	From("builds b").
 	JoinClause("LEFT OUTER JOIN jobs j ON b.job_id = j.id").
 	JoinClause("LEFT OUTER JOIN pipelines p ON b.pipeline_id = p.id").
@@ -80,7 +80,7 @@ type Build interface {
 
 	Resources() ([]BuildInput, []BuildOutput, error)
 	GetVersionedResources() (SavedVersionedResources, error)
-	SaveImageResourceVersion(*UsedResourceCache) error
+	SaveImageResourceVersion(UsedResourceCache) error
 
 	Pipeline() (Pipeline, bool, error)
 
@@ -88,6 +88,9 @@ type Build interface {
 	MarkAsAborted() error
 	AbortNotifier() (Notifier, error)
 	Schedule() (bool, error)
+
+	IsDrained() bool
+	SetDrained(bool) error
 }
 
 type build struct {
@@ -118,6 +121,7 @@ type build struct {
 
 	conn        Conn
 	lockFactory lock.LockFactory
+	drained     bool
 }
 
 var ErrBuildDisappeared = errors.New("build-disappeared-from-db")
@@ -140,6 +144,7 @@ func (b *build) ReapTime() time.Time          { return b.reapTime }
 func (b *build) Status() BuildStatus          { return b.status }
 func (b *build) Tracker() string              { return b.trackedBy }
 func (b *build) IsScheduled() bool            { return b.scheduled }
+func (b *build) IsDrained() bool              { return b.drained }
 
 func (b *build) IsRunning() bool {
 	switch b.status {
@@ -253,17 +258,19 @@ func (b *build) Start(engine, metadata string, plan atc.Plan) (bool, error) {
 		return false, err
 	}
 
+	if b.jobID != 0 {
+		err = updateNextBuildForJob(tx, b.jobID)
+		if err != nil {
+			return false, err
+		}
+	}
+
 	err = tx.Commit()
 	if err != nil {
 		return false, err
 	}
 
 	err = b.conn.Bus().Notify(buildEventsChannel(b.id))
-	if err != nil {
-		return false, err
-	}
-
-	_, err = b.conn.Exec(`REFRESH MATERIALIZED VIEW CONCURRENTLY next_builds_per_job`)
 	if err != nil {
 		return false, err
 	}
@@ -334,6 +341,28 @@ func (b *build) Finish(status BuildStatus) error {
 		}
 	}
 
+	if b.jobID != 0 {
+		err = bumpCacheIndex(tx, b.pipelineID)
+		if err != nil {
+			return err
+		}
+
+		err = updateTransitionBuildForJob(tx, b.jobID, b.id, status)
+		if err != nil {
+			return err
+		}
+
+		err = updateLatestCompletedBuildForJob(tx, b.jobID)
+		if err != nil {
+			return err
+		}
+
+		err = updateNextBuildForJob(tx, b.jobID)
+		if err != nil {
+			return err
+		}
+	}
+
 	err = tx.Commit()
 	if err != nil {
 		return err
@@ -344,17 +373,19 @@ func (b *build) Finish(status BuildStatus) error {
 		return err
 	}
 
-	_, err = b.conn.Exec(`REFRESH MATERIALIZED VIEW CONCURRENTLY latest_completed_builds_per_job`)
-	if err != nil {
-		return err
-	}
+	return nil
+}
 
-	_, err = b.conn.Exec(`REFRESH MATERIALIZED VIEW CONCURRENTLY next_builds_per_job`)
-	if err != nil {
-		return err
-	}
+func (b *build) SetDrained(drained bool) error {
+	_, err := psql.Update("builds").
+		Set("drained", drained).
+		Where(sq.Eq{"id": b.id}).
+		RunWith(b.conn).
+		Exec()
 
-	_, err = b.conn.Exec(`REFRESH MATERIALIZED VIEW CONCURRENTLY transition_builds_per_job`)
+	if err == nil {
+		b.drained = drained
+	}
 	return err
 }
 
@@ -457,10 +488,10 @@ func (b *build) Pipeline() (Pipeline, bool, error) {
 	return pipeline, true, nil
 }
 
-func (b *build) SaveImageResourceVersion(rc *UsedResourceCache) error {
+func (b *build) SaveImageResourceVersion(rc UsedResourceCache) error {
 	_, err := psql.Insert("build_image_resource_caches").
 		Columns("resource_cache_id", "build_id").
-		Values(rc.ID, b.id).
+		Values(rc.ID(), b.id).
 		RunWith(b.conn).
 		Exec()
 	if err != nil {
@@ -742,6 +773,11 @@ func (b *build) SaveInput(input BuildInput) error {
 		return err
 	}
 
+	err = bumpCacheIndex(tx, b.pipelineID)
+	if err != nil {
+		return err
+	}
+
 	return tx.Commit()
 }
 
@@ -791,6 +827,11 @@ func (b *build) UseInputs(inputs []BuildInput) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	err = bumpCacheIndex(tx, b.pipelineID)
+	if err != nil {
+		return err
 	}
 
 	return tx.Commit()
@@ -904,8 +945,7 @@ func (b *build) GetVersionedResources() (SavedVersionedResources, error) {
 			vr.version,
 			vr.metadata,
 			vr.type,
-			r.name,
-			vr.modified_time
+			r.name
 		FROM builds b
 		INNER JOIN jobs j ON b.job_id = j.id
 		INNER JOIN build_inputs bi ON bi.build_id = b.id
@@ -920,8 +960,7 @@ func (b *build) GetVersionedResources() (SavedVersionedResources, error) {
 			vr.version,
 			vr.metadata,
 			vr.type,
-			r.name,
-			vr.modified_time
+			r.name
 		FROM builds b
 		INNER JOIN jobs j ON b.job_id = j.id
 		INNER JOIN build_outputs bo ON bo.build_id = b.id
@@ -945,7 +984,7 @@ func (b *build) getVersionedResources(resourceRequest string) (SavedVersionedRes
 		var versionedResource SavedVersionedResource
 		var versionJSON []byte
 		var metadataJSON []byte
-		err = rows.Scan(&versionedResource.ID, &versionedResource.Enabled, &versionJSON, &metadataJSON, &versionedResource.Type, &versionedResource.Resource, &versionedResource.ModifiedTime)
+		err = rows.Scan(&versionedResource.ID, &versionedResource.Enabled, &versionJSON, &metadataJSON, &versionedResource.Type, &versionedResource.Resource)
 		if err != nil {
 			return nil, err
 		}
@@ -983,11 +1022,12 @@ func scanBuild(b *build, row scannable, encryptionStrategy encryption.Strategy) 
 		engine, engineMetadata, jobName, pipelineName, publicPlan, trackedBy sql.NullString
 		startTime, endTime, reapTime                                         pq.NullTime
 		nonce                                                                sql.NullString
+		drained                                                              bool
 
 		status string
 	)
 
-	err := row.Scan(&b.id, &b.name, &jobID, &b.teamID, &status, &b.isManuallyTriggered, &b.scheduled, &engine, &engineMetadata, &publicPlan, &startTime, &endTime, &reapTime, &jobName, &pipelineID, &pipelineName, &b.teamName, &nonce, &trackedBy)
+	err := row.Scan(&b.id, &b.name, &jobID, &b.teamID, &status, &b.isManuallyTriggered, &b.scheduled, &engine, &engineMetadata, &publicPlan, &startTime, &endTime, &reapTime, &jobName, &pipelineID, &pipelineName, &b.teamName, &nonce, &trackedBy, &drained)
 	if err != nil {
 		return err
 	}
@@ -1002,6 +1042,7 @@ func scanBuild(b *build, row scannable, encryptionStrategy encryption.Strategy) 
 	b.endTime = endTime.Time
 	b.reapTime = reapTime.Time
 	b.trackedBy = trackedBy.String
+	b.drained = drained
 
 	var (
 		noncense                *string
@@ -1077,4 +1118,89 @@ func buildEventsChannel(buildID int) string {
 
 func buildAbortChannel(buildID int) string {
 	return fmt.Sprintf("build_abort_%d", buildID)
+}
+
+func updateNextBuildForJob(tx Tx, jobID int) error {
+	_, err := tx.Exec(`
+		UPDATE jobs AS j
+		SET next_build_id = (
+			SELECT min(b.id)
+			FROM builds b
+			WHERE b.job_id = $1
+			AND b.status IN ('pending', 'started')
+		)
+		WHERE j.id = $1
+	`, jobID)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func updateLatestCompletedBuildForJob(tx Tx, jobID int) error {
+	_, err := tx.Exec(`
+		UPDATE jobs AS j
+		SET latest_completed_build_id = (
+			SELECT max(b.id)
+			FROM builds b
+			WHERE b.job_id = $1
+			AND b.status NOT IN ('pending', 'started')
+		)
+		WHERE j.id = $1
+	`, jobID)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func updateTransitionBuildForJob(tx Tx, jobID int, buildID int, buildStatus BuildStatus) error {
+	var shouldUpdateTransition bool
+
+	var latestID int
+	var latestStatus BuildStatus
+	err := psql.Select("b.id", "b.status").
+		From("builds b").
+		JoinClause("INNER JOIN jobs j ON j.latest_completed_build_id = b.id").
+		Where(sq.Eq{"j.id": jobID}).
+		RunWith(tx).
+		QueryRow().
+		Scan(&latestID, &latestStatus)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// this is the first completed build; initiate transition
+			shouldUpdateTransition = true
+		} else {
+			return err
+		}
+	}
+
+	if buildID < latestID {
+		// latest completed build is actually after this one, so this build
+		// has no influence on the job's overall state
+		//
+		// this can happen when multiple builds are running at a time and the
+		// later-queued ones finish earlier
+		return nil
+	}
+
+	if latestStatus != buildStatus {
+		// status has changed; transitioned!
+		shouldUpdateTransition = true
+	}
+
+	if shouldUpdateTransition {
+		_, err := psql.Update("jobs").
+			Set("transition_build_id", buildID).
+			Where(sq.Eq{"id": jobID}).
+			RunWith(tx).
+			Exec()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

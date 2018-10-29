@@ -41,7 +41,7 @@ type VolumeClient interface {
 	) (Volume, error)
 	FindVolumeForResourceCache(
 		lager.Logger,
-		*db.UsedResourceCache,
+		db.UsedResourceCache,
 	) (Volume, bool, error)
 	FindVolumeForTaskCache(
 		logger lager.Logger,
@@ -64,8 +64,6 @@ type VolumeClient interface {
 
 	LookupVolume(lager.Logger, string) (Volume, bool, error)
 }
-
-var ErrVolumeExpiredImmediately = errors.New("volume expired immediately after saving")
 
 type ErrCreatedVolumeNotFound struct {
 	Handle     string
@@ -104,8 +102,8 @@ func NewVolumeClient(
 		dbVolumeRepository:              dbVolumeRepository,
 		dbWorkerBaseResourceTypeFactory: dbWorkerBaseResourceTypeFactory,
 		dbWorkerTaskCacheFactory:        dbWorkerTaskCacheFactory,
-		clock:    clock,
-		dbWorker: dbWorker,
+		clock:                           clock,
+		dbWorker:                        dbWorker,
 	}
 }
 
@@ -158,6 +156,7 @@ func (c *volumeClient) FindOrCreateVolumeForBaseResourceType(
 	if err != nil {
 		return nil, err
 	}
+
 	if !found {
 		logger.Error("base-resource-type-not-found", ErrBaseResourceTypeNotFound, lager.Data{"resource-type-name": resourceTypeName})
 		return nil, ErrBaseResourceTypeNotFound
@@ -177,7 +176,7 @@ func (c *volumeClient) FindOrCreateVolumeForBaseResourceType(
 
 func (c *volumeClient) FindVolumeForResourceCache(
 	logger lager.Logger,
-	usedResourceCache *db.UsedResourceCache,
+	usedResourceCache db.UsedResourceCache,
 ) (Volume, bool, error) {
 	dbVolume, found, err := c.dbVolumeRepository.FindResourceCacheVolume(c.dbWorker.Name(), usedResourceCache)
 	if err != nil {
