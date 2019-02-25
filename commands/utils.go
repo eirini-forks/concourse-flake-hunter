@@ -3,14 +3,7 @@ package commands
 import (
 	"fmt"
 	"time"
-
-	"github.com/masters-of-cats/concourse-flake-hunter/hunter"
 )
-
-func age(build hunter.Build) int {
-	endTime := time.Unix(build.EndTime, 0)
-	return int(time.Since(endTime) / time.Hour)
-}
 
 func timeSince(timestamp int64) string {
 	t := time.Unix(timestamp, 0)

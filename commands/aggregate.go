@@ -54,14 +54,14 @@ var AggregateCommand = cli.Command{
 			Pattern: regexp.MustCompile("\\[Fail\\].*"),
 		}
 
+		if ctx.Int("max-age") > 0 {
+			spec.MaxAge = ctx.Int("max-age")
+		}
+
 		builds := searcher.Search(spec)
 
 		aggregator := NewAggregator()
-		maxAge := ctx.Int("max-age")
 		for build := range builds {
-			if maxAge > 0 && age(build) > maxAge {
-				break
-			}
 			for _, match := range build.Matches {
 				aggregator.addFailure(&Failure{
 					Description:  match,

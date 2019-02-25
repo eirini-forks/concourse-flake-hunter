@@ -41,18 +41,18 @@ var SearchCommand = cli.Command{
 		if ctx.Bool("show-one-offs") {
 			spec.ShowOneOffs = true
 		}
+
+		if ctx.Int("max-age") > 0 {
+			spec.MaxAge = ctx.Int("max-age")
+		}
+
 		builds := searcher.Search(spec)
 
 		fmt.Printf("+-------+%-32s+%s\n", "----------------------------------", "-----------------------------------------------------")
 		fmt.Printf("| %-5s | %-32s | %s\n", "Ended", "Job", "Url")
 		fmt.Printf("+-------+%-32s+%s\n", "----------------------------------", "-----------------------------------------------------")
 
-		maxAge := ctx.Int("max-age")
 		for build := range builds {
-			if maxAge > 0 && age(build) > maxAge {
-				break
-			}
-
 			fmt.Printf("| %-5s | %-32s | %s\n", timeSince(build.EndTime), build.PipelineName+"/"+build.JobName, build.ConcourseURL)
 		}
 

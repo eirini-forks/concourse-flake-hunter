@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/concourse/atc"
 	"github.com/concourse/go-concourse/concourse"
@@ -20,6 +21,7 @@ const (
 type SearchSpec struct {
 	Pattern     *regexp.Regexp
 	ShowOneOffs bool
+	MaxAge      int
 }
 
 type Searcher struct {
@@ -46,10 +48,7 @@ func (s *Searcher) Search(spec SearchSpec) chan Build {
 
 func (s *Searcher) getBuildsFromPage(flakesChan chan Build, page concourse.Page, spec SearchSpec) {
 	var (
-		buildsChan = make(chan []atc.Build)
-		pages      = concourse.Pagination{Next: &page}
-		builds     []atc.Build
-		err        error
+		buildsChan = make(chan atc.Build)
 		wg         sync.WaitGroup
 	)
 
@@ -61,6 +60,18 @@ func (s *Searcher) getBuildsFromPage(flakesChan chan Build, page concourse.Page,
 		}()
 	}
 
+	s.fetchBuildsFromPage(buildsChan, page, spec)
+	close(buildsChan)
+
+	wg.Wait()
+	close(flakesChan)
+}
+
+func (s *Searcher) fetchBuildsFromPage(buildsChan chan atc.Build, page concourse.Page, spec SearchSpec) {
+	var pages = concourse.Pagination{Next: &page}
+	var builds []atc.Build
+	var err error
+
 	for pages.Next != nil {
 		page = *pages.Next
 		builds, pages, err = s.client.Builds(page)
@@ -69,27 +80,36 @@ func (s *Searcher) getBuildsFromPage(flakesChan chan Build, page concourse.Page,
 			continue
 		}
 
-		buildsChan <- builds
-	}
-	close(buildsChan)
-
-	wg.Wait()
-	close(flakesChan)
-}
-
-func (s *Searcher) processBuilds(flakesCh chan Build, buildsCh chan []atc.Build, spec SearchSpec) {
-	for builds := range buildsCh {
 		for _, build := range builds {
+			if build.Status != string(atc.StatusFailed) {
+				continue
+			}
+
 			if !spec.ShowOneOffs && isOneOff(build) {
 				continue
 			}
 
-			if err := s.processBuild(flakesCh, build, spec); err != nil {
-				println(err.Error())
-				continue
+			if age(build) > spec.MaxAge {
+				return
 			}
+
+			buildsChan <- build
 		}
 	}
+}
+
+func (s *Searcher) processBuilds(flakesCh chan Build, buildsCh chan atc.Build, spec SearchSpec) {
+	for build := range buildsCh {
+		if err := s.processBuild(flakesCh, build, spec); err != nil {
+			println(err.Error())
+			continue
+		}
+	}
+}
+
+func age(build atc.Build) int {
+	endTime := time.Unix(build.EndTime, 0)
+	return int(time.Since(endTime) / time.Hour)
 }
 
 func isOneOff(build atc.Build) bool {
@@ -97,11 +117,6 @@ func isOneOff(build atc.Build) bool {
 }
 
 func (s *Searcher) processBuild(flakesCh chan Build, build atc.Build, spec SearchSpec) error {
-	if build.Status != string(atc.StatusFailed) {
-		// We only care about failed builds
-		return nil
-	}
-
 	events, err := s.client.BuildEvents(strconv.Itoa(build.ID))
 	// Not sure why, but concourse.Builds returns builds from other teams
 	if err != nil && err.Error() != StatusForbidden {
