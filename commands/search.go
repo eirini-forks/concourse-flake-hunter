@@ -56,6 +56,8 @@ var SearchCommand = cli.Command{
 			fmt.Printf("| %-5s | %-32s | %s\n", timeSince(build.EndTime), build.PipelineName+"/"+build.JobName, build.ConcourseURL)
 		}
 
+		fmt.Printf("+-------+%-32s+%s\n", "----------------------------------", "-----------------------------------------------------")
+
 		return nil
 	},
 }

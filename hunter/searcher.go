@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"sync"
 
-	"github.com/masters-of-cats/concourse-flake-hunter/fly"
 	"github.com/concourse/atc"
 	"github.com/concourse/go-concourse/concourse"
+	"github.com/masters-of-cats/concourse-flake-hunter/fly"
 )
 
 const (
@@ -49,13 +50,19 @@ func (s *Searcher) getBuildsFromPage(flakesChan chan Build, page concourse.Page,
 		pages      = concourse.Pagination{Next: &page}
 		builds     []atc.Build
 		err        error
+		wg         sync.WaitGroup
 	)
 
+	wg.Add(WorkerPoolSize)
 	for i := 0; i < WorkerPoolSize; i++ {
-		go s.processBuilds(flakesChan, buildsChan, spec)
+		go func() {
+			s.processBuilds(flakesChan, buildsChan, spec)
+			wg.Done()
+		}()
 	}
 
-	for ; pages.Next != nil; page = *pages.Next {
+	for pages.Next != nil {
+		page = *pages.Next
 		builds, pages, err = s.client.Builds(page)
 		if err != nil {
 			println(err.Error())
@@ -64,6 +71,10 @@ func (s *Searcher) getBuildsFromPage(flakesChan chan Build, page concourse.Page,
 
 		buildsChan <- builds
 	}
+	close(buildsChan)
+
+	wg.Wait()
+	close(flakesChan)
 }
 
 func (s *Searcher) processBuilds(flakesCh chan Build, buildsCh chan []atc.Build, spec SearchSpec) {
