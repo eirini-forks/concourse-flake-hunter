@@ -1,0 +1,55 @@
+# github.com/bmizerany/pat v0.0.0-20170815010413-6226ea591a40
+github.com/bmizerany/pat
+# github.com/concourse/atc v4.2.2+incompatible
+github.com/concourse/atc
+github.com/concourse/atc/event
+# github.com/concourse/fly v4.2.5+incompatible
+github.com/concourse/fly/rc
+github.com/concourse/fly/ui
+github.com/concourse/fly/version
+# github.com/concourse/go-concourse v4.2.2+incompatible
+github.com/concourse/go-concourse/concourse
+github.com/concourse/go-concourse/concourse/eventstream
+github.com/concourse/go-concourse/concourse/internal
+# github.com/cppforlife/go-semi-semantic v0.0.0-20160921010311-576b6af77ae4
+github.com/cppforlife/go-semi-semantic/version
+# github.com/fatih/color v1.7.0
+github.com/fatih/color
+# github.com/golang/protobuf v1.3.1
+github.com/golang/protobuf/proto
+# github.com/google/jsonapi v0.0.0-20181016150055-d0428f63eb51
+github.com/google/jsonapi
+# github.com/jessevdk/go-flags v1.4.0
+github.com/jessevdk/go-flags
+# github.com/mattn/go-colorable v0.1.1
+github.com/mattn/go-colorable
+# github.com/mattn/go-isatty v0.0.7
+github.com/mattn/go-isatty
+# github.com/mitchellh/mapstructure v1.1.2
+github.com/mitchellh/mapstructure
+# github.com/peterhellberg/link v1.0.0
+github.com/peterhellberg/link
+# github.com/tedsuo/rata v1.0.1-0.20170830210128-07d200713958
+github.com/tedsuo/rata
+# github.com/urfave/cli v1.20.0
+github.com/urfave/cli
+# github.com/vito/go-sse v0.0.0-20160212001227-fd69d275caac
+github.com/vito/go-sse/sse
+# golang.org/x/net v0.0.0-20190404232315-eb5bcb51f2a3
+golang.org/x/net/context/ctxhttp
+golang.org/x/net/context
+# golang.org/x/oauth2 v0.0.0-20190402181905-9f3314589c9a
+golang.org/x/oauth2
+golang.org/x/oauth2/internal
+# golang.org/x/sys v0.0.0-20190412213103-97732733099d
+golang.org/x/sys/unix
+# google.golang.org/appengine v1.4.0
+google.golang.org/appengine/urlfetch
+google.golang.org/appengine/internal
+google.golang.org/appengine/internal/urlfetch
+google.golang.org/appengine/internal/base
+google.golang.org/appengine/internal/datastore
+google.golang.org/appengine/internal/log
+google.golang.org/appengine/internal/remote_api
+# gopkg.in/yaml.v2 v2.2.2
+gopkg.in/yaml.v2
