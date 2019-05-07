@@ -11,14 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/concourse/atc"
-	"github.com/concourse/atc/event"
-	"github.com/concourse/fly/rc"
-	"github.com/concourse/go-concourse/concourse"
+	"github.com/concourse/concourse/atc"
+	"github.com/concourse/concourse/atc/event"
+	"github.com/concourse/concourse/fly/rc"
+	"github.com/concourse/concourse/go-concourse/concourse"
 	"golang.org/x/oauth2"
 )
 
-//go:generate counterfeiter . Client
 type Client interface {
 	ConcourseURL() string
 	Builds(concourse.Page) ([]atc.Build, concourse.Pagination, error)
