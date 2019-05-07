@@ -22,7 +22,7 @@ var SearchCommand = cli.Command{
 		cli.IntFlag{
 			Name:  "max-age, m",
 			Usage: "Lists builds that failed in the last n hours",
-			Value: -1,
+			Value: 0,
 		},
 	},
 

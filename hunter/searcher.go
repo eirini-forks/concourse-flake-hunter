@@ -42,7 +42,7 @@ func NewSearcher(client fly.Client) *Searcher {
 
 func (s *Searcher) Search(spec SearchSpec) chan Build {
 	flakesChan := make(chan Build, 100)
-	go s.getBuildsFromPage(flakesChan, concourse.Page{Limit: 300}, spec)
+	go s.getBuildsFromPage(flakesChan, concourse.Page{Limit: 30000}, spec)
 	return flakesChan
 }
 
@@ -89,7 +89,7 @@ func (s *Searcher) fetchBuildsFromPage(buildsChan chan atc.Build, page concourse
 				continue
 			}
 
-			if age(build) > spec.MaxAge {
+			if spec.MaxAge > 0 && age(build) > spec.MaxAge {
 				return
 			}
 
