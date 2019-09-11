@@ -31,6 +31,10 @@ on.
   * All commits must have a signature certifying agreement to the [DCO][dco].
     For more information, see [Signing your work](#signing-your-work).
 
+  * Write release notes by adding onto the `latest.md` file in the 
+    `release-notes/` directory! For formatting and style examples,
+    see previous release notes in the same directory.
+
   * *Optional: check out our [Go style guide][style-guide]!*
 
 * When you're ready, [submit a pull request][how-to-pr]!
@@ -169,16 +173,6 @@ $ yarn build
 When new assets are built locally, they will automatically propagate to the
 `web` container without requiring a restart.
 
-For a quicker feedback cycle, you'll probably want to use `watch` instead of
-`build`:
-
-```sh
-$ yarn watch
-```
-
-This will continuously monitor your local `.elm`/`.less` files and run `yarn
-build` whenever they change.
-
 ### Debugging with `dlv`
 
 With concourse already running, during local development is possible to attach
@@ -223,6 +217,45 @@ $ docker-compose rm db
 $ docker-compose start
 ```
 
+### Adding migrations
+
+Concourse database migrations live under `atc/db/migration/migrations`. They are
+generated using Concourse's own inbuilt migration library. The migration file 
+names are of the following format:
+```
+<migration_version>_<migration_name>.(up|down).(sql|go)
+```
+
+The migration version number is the timestamp of the time at which the migration
+files are created. This is to ensure that the migrations always run in order.
+There is a utility provided to generate migration files, located at 
+`atc/db/migration/cli`.
+
+To generate a migration:
+
+1. Build the CLI:
+
+```sh
+$ go build atc/db/migration/cli -o mig
+```
+2. Run the `generate` command. It takes the migration name, file type (SQL or Go)
+and optionally, the directory in which to put the migration files (by default, 
+new migrations are placed in `./migrations`):
+
+```sh
+$ ./mig generate -n my_migration_name -t sql
+```
+
+This should generate two files for you:
+``` 
+1510262030_my_migration_name.down.sql
+1510262030_my_migration_name.up.sql
+```
+
+Now that the migration files have been created in the right format, you can fill 
+the database up and down migrations in these files. On startup, `concourse web`
+will look for any new migrations in `atc/db/migration/migrations` and will run
+them in order.
 
 ## Testing your changes
 
@@ -271,7 +304,7 @@ fakes for our unit tests. You may need to regenerate fakes if you add or modify 
 interface. To do so, you'll need to install `counterfeiter` as follows:
 
 ```sh
-$ go get -u https://github.com/maxbrunsfeld/counterfeiter/v6
+$ go get -u github.com/maxbrunsfeld/counterfeiter/v6
 ```
 
 You can then generate the fakes by running
@@ -323,6 +356,10 @@ even some automated fixes!
 Run `yarn format` to format the elm code according to the official Elm Style
 Guide. Powered by [elm-format](https://github.com/avh4/elm-format).
 
+### Elm benchmarking
+
+Run `yarn benchmark`.
+
 ### Running the acceptance tests (`testflight`)
 
 The `testflight` package contains tests that run against a real live Concourse.
@@ -351,6 +388,28 @@ Run `yarn test` from the `web/wats` directory. They use puppeteer to run
 a headless Chromium. A handy fact is that in most cases if a test fails,
 a screenshot taken at the moment of the failure will be at
 `web/wats/failure.png`.
+
+
+### Running Kubernetes tests
+
+Kubernetes-related testing are all end-to-end, living under `topgun/k8s`. They
+require access to a real Kubernetes cluster with access granted through a 
+properly configured `~/.kube/config` file.
+
+The tests require a few environment variables to be set:
+
+- `CONCOURSE_IMAGE_TAG` or `CONCOURSE_IMAGE_DIGEST`: the tag or digest to use
+when deploying Concourse in the k8s cluster
+- `CONCOURSE_IMAGE_NAME`: the name of the image to use when deploying Concourse
+to the Kubernetes cluster
+- `CHARTS_DIR`: location in the filesystem where a copy of [`the Concourse Helm 
+chart`][concourse-helm-chart] exists.
+
+With those set, go to `topgun/k8s` and run Ginkgo:
+
+```sh
+ginkgo .
+```
 
 
 ### A note on `topgun`
@@ -437,3 +496,4 @@ pushed commits without the signature.
 [style-guide]: https://github.com/concourse/concourse/wiki/Concourse-Go-Style-Guide
 [how-to-fork]: https://help.github.com/articles/fork-a-repo/
 [how-to-pr]: https://help.github.com/articles/creating-a-pull-request-from-a-fork/
+[concourse-helm-chart]: https://github.com/helm/charts/blob/master/stable/concourse/README.md

@@ -1,6 +1,6 @@
 # github.com/bmizerany/pat v0.0.0-20170815010413-6226ea591a40
 github.com/bmizerany/pat
-# github.com/concourse/concourse v0.0.0-20190412165756-d139731debf1
+# github.com/concourse/concourse v0.0.0-20190909191855-49c1b40eced1
 github.com/concourse/concourse/atc
 github.com/concourse/concourse/atc/event
 github.com/concourse/concourse/fly/rc
@@ -14,7 +14,7 @@ github.com/concourse/concourse/go-concourse/concourse/internal
 github.com/cppforlife/go-semi-semantic/version
 # github.com/fatih/color v1.7.0
 github.com/fatih/color
-# github.com/golang/protobuf v1.3.1
+# github.com/golang/protobuf v1.3.2
 github.com/golang/protobuf/proto
 # github.com/google/jsonapi v0.0.0-20181016150055-d0428f63eb51
 github.com/google/jsonapi
@@ -24,12 +24,11 @@ github.com/jessevdk/go-flags
 github.com/mattn/go-colorable
 # github.com/mattn/go-isatty v0.0.7
 github.com/mattn/go-isatty
-# github.com/maxbrunsfeld/counterfeiter/v6 v6.0.2
+# github.com/maxbrunsfeld/counterfeiter/v6 v6.2.2
 github.com/maxbrunsfeld/counterfeiter/v6
 github.com/maxbrunsfeld/counterfeiter/v6/arguments
+github.com/maxbrunsfeld/counterfeiter/v6/command
 github.com/maxbrunsfeld/counterfeiter/v6/generator
-# github.com/mitchellh/mapstructure v1.1.2
-github.com/mitchellh/mapstructure
 # github.com/peterhellberg/link v1.0.0
 github.com/peterhellberg/link
 # github.com/tedsuo/rata v1.0.1-0.20170830210128-07d200713958
@@ -38,15 +37,24 @@ github.com/tedsuo/rata
 github.com/urfave/cli
 # github.com/vito/go-sse v0.0.0-20160212001227-fd69d275caac
 github.com/vito/go-sse/sse
-# golang.org/x/net v0.0.0-20190404232315-eb5bcb51f2a3
+# golang.org/x/crypto v0.0.0-20190829043050-9756ffdc2472
+golang.org/x/crypto/ssh
+golang.org/x/crypto/curve25519
+golang.org/x/crypto/ed25519
+golang.org/x/crypto/internal/chacha20
+golang.org/x/crypto/poly1305
+golang.org/x/crypto/ed25519/internal/edwards25519
+golang.org/x/crypto/internal/subtle
+# golang.org/x/net v0.0.0-20190827160401-ba9fcec4b297
 golang.org/x/net/context/ctxhttp
 golang.org/x/net/context
-# golang.org/x/oauth2 v0.0.0-20190402181905-9f3314589c9a
+# golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45
 golang.org/x/oauth2
 golang.org/x/oauth2/internal
-# golang.org/x/sys v0.0.0-20190412213103-97732733099d
+# golang.org/x/sys v0.0.0-20190826190057-c7b8b68b1456
+golang.org/x/sys/cpu
 golang.org/x/sys/unix
-# golang.org/x/tools v0.0.0-20190404132500-923d25813098
+# golang.org/x/tools v0.0.0-20190829051458-42f498d34c4d
 golang.org/x/tools/go/packages
 golang.org/x/tools/go/types/typeutil
 golang.org/x/tools/imports
@@ -55,10 +63,11 @@ golang.org/x/tools/go/internal/packagesdriver
 golang.org/x/tools/internal/gopathwalk
 golang.org/x/tools/internal/semver
 golang.org/x/tools/go/ast/astutil
-golang.org/x/tools/internal/module
+golang.org/x/tools/internal/imports
 golang.org/x/tools/go/internal/gcimporter
 golang.org/x/tools/internal/fastwalk
-# google.golang.org/appengine v1.4.0
+golang.org/x/tools/internal/module
+# google.golang.org/appengine v1.6.1
 google.golang.org/appengine/urlfetch
 google.golang.org/appengine/internal
 google.golang.org/appengine/internal/urlfetch
@@ -68,3 +77,5 @@ google.golang.org/appengine/internal/log
 google.golang.org/appengine/internal/remote_api
 # gopkg.in/yaml.v2 v2.2.2
 gopkg.in/yaml.v2
+# sigs.k8s.io/yaml v1.1.0
+sigs.k8s.io/yaml

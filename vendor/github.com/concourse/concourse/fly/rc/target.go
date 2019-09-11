@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"runtime"
 	"time"
 
@@ -34,7 +35,9 @@ func NewErrVersionMismatch(flyVersion string, atcVersion string, targetName Targ
 }
 
 func (e ErrVersionMismatch) Error() string {
-	return fmt.Sprintf("fly version (%s) is out of sync with the target (%s). to sync up, run the following:\n\n    fly -t %s sync\n", ui.Embolden(e.flyVersion), ui.Embolden(e.atcVersion), e.targetName)
+	return fmt.Sprintf(
+		"fly version (%s) is out of sync with the target (%s). to sync up, run the following:\n\n    %s -t %s sync\n",
+		ui.Embolden(e.flyVersion), ui.Embolden(e.atcVersion), os.Args[0], e.targetName)
 }
 
 type Target interface {
@@ -194,6 +197,34 @@ func NewUnauthenticatedTarget(
 		teamName,
 		url,
 		nil,
+		caCert,
+		caCertPool,
+		insecure,
+		client,
+	), nil
+}
+
+func NewAuthenticatedTarget(
+	name TargetName,
+	url string,
+	teamName string,
+	insecure bool,
+	token *TargetToken,
+	caCert string,
+	tracing bool,
+) (Target, error) {
+	caCertPool, err := loadCACertPool(caCert)
+	if err != nil {
+		return nil, err
+	}
+	httpClient := defaultHttpClient(token, insecure, caCertPool)
+	client := concourse.NewClient(url, httpClient, tracing)
+
+	return newTarget(
+		name,
+		teamName,
+		url,
+		token,
 		caCert,
 		caCertPool,
 		insecure,

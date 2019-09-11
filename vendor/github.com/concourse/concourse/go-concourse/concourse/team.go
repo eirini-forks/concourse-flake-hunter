@@ -12,6 +12,7 @@ import (
 type Team interface {
 	Name() string
 
+	Team(teamName string) (atc.Team, bool, error)
 	CreateOrUpdate(team atc.Team) (atc.Team, bool, bool, error)
 	RenameTeam(teamName, name string) (bool, error)
 	DestroyTeam(teamName string) error
@@ -62,7 +63,7 @@ type Team interface {
 	Builds(page Page) ([]atc.Build, Pagination, error)
 	OrderingPipelines(pipelineNames []string) error
 
-	CreateArtifact(io.Reader) (atc.WorkerArtifact, error)
+	CreateArtifact(io.Reader, string) (atc.WorkerArtifact, error)
 	GetArtifact(int) (io.ReadCloser, error)
 }
 
