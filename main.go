@@ -43,6 +43,10 @@ func main() {
 			ctx.String("password"),
 			ctx.String("team-name"),
 		)
+		if err := client.InitConcourseClient(); err != nil {
+			println("Clould not init concourse client: ", err.Error())
+			os.Exit(1)
+		}
 		ctx.App.Metadata["client"] = client
 
 		return nil
