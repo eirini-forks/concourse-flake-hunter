@@ -18,8 +18,13 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const (
+	targetName = "concourse-flake-hunter"
+)
+
 type Client interface {
 	InitConcourseClient() error
+	InvalidateConcourseClient() error
 	ConcourseURL() string
 	Builds(concourse.Page) ([]atc.Build, concourse.Pagination, error)
 	BuildEvents(buildID string) ([]byte, error)
@@ -97,10 +102,6 @@ func (c *client) BuildEvents(buildID string) ([]byte, error) {
 }
 
 func (c *client) InitConcourseClient() error {
-	if c.concourseCli != nil {
-		return nil
-	}
-
 	token, err := c.getAuthToken()
 	if err != nil {
 		return fmt.Errorf("Failed to get token: %v", err)
@@ -112,7 +113,16 @@ func (c *client) InitConcourseClient() error {
 	}
 
 	c.concourseCli = concourse.NewClient(c.concourseURL, &http.Client{Transport: transport}, false)
+	if _, err = c.concourseCli.GetInfo(); err != nil && err.Error() == "not authorized" {
+		c.InvalidateConcourseClient()
+		c.InitConcourseClient()
+	}
 	return nil
+}
+
+func (c *client) InvalidateConcourseClient() error {
+	c.concourseCli = nil
+	return rc.DeleteTarget(targetName)
 }
 
 func (c *client) concourseClient() (concourse.Client, error) {
@@ -129,18 +139,18 @@ func (c *client) concourseClient() (concourse.Client, error) {
 func (c *client) getAuthToken() (token *oauth2.Token, err error) {
 	var target rc.Target
 	target, err = rc.LoadUnauthenticatedTarget(
-		"concourse-flake-hunter",
+		targetName,
 		c.team,
 		true,
 		"",
 		false,
 	)
-	if err == nil && tokenValid(target) {
+	if err == nil {
 		return &oauth2.Token{TokenType: target.Token().Type, AccessToken: target.Token().Value}, nil
 	}
 
 	target, err = rc.NewUnauthenticatedTarget(
-		"concourse-flake-hunter",
+		targetName,
 		c.concourseURL,
 		c.team,
 		true,
@@ -154,7 +164,7 @@ func (c *client) getAuthToken() (token *oauth2.Token, err error) {
 
 	defer func() {
 		rc.SaveTarget(
-			"concourse-flake-hunter",
+			targetName,
 			c.concourseURL,
 			true,
 			c.team,
@@ -171,14 +181,6 @@ func (c *client) getAuthToken() (token *oauth2.Token, err error) {
 	}
 
 	return c.authCodeGrant(client.URL())
-}
-
-func tokenValid(target rc.Target) bool {
-	token := oauth2.Token{
-		TokenType:   target.Token().Type,
-		AccessToken: target.Token().Value,
-	}
-	return token.Valid()
 }
 
 func (c *client) passwordGrant(client concourse.Client) (*oauth2.Token, error) {
@@ -208,7 +210,7 @@ func (c *client) authCodeGrant(targetUrl string) (*oauth2.Token, error) {
 
 	var openURL string
 
-	fmt.Println("navigate to the following URL in your browser:")
+	fmt.Println("Please, navigate to the following URL in your browser to get authorized:")
 	fmt.Println("")
 
 	openURL = fmt.Sprintf("%s/login?fly_port=%s", targetUrl, port)
