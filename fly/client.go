@@ -1,6 +1,7 @@
 package fly
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -196,15 +198,18 @@ func (c *client) passwordGrant(client concourse.Client) (*oauth2.Token, error) {
 	return oauth2Config.PasswordCredentialsToken(ctx, c.username, c.password)
 }
 
-func (c *client) authCodeGrant(targetUrl string) (*oauth2.Token, error) {
+func (c *client) authCodeGrant(targetURL string) (*oauth2.Token, error) {
 
 	var tokenStr string
 
 	tokenChannel := make(chan string)
 	errorChannel := make(chan error)
+
+	go readTokenFromInputStream(tokenChannel, errorChannel)
+
 	portChannel := make(chan string)
 
-	go listenForTokenCallback(tokenChannel, errorChannel, portChannel, targetUrl)
+	go listenForTokenCallback(tokenChannel, errorChannel, portChannel, targetURL)
 
 	port := <-portChannel
 
@@ -213,15 +218,17 @@ func (c *client) authCodeGrant(targetUrl string) (*oauth2.Token, error) {
 	fmt.Println("Please, navigate to the following URL in your browser to get authorized:")
 	fmt.Println("")
 
-	openURL = fmt.Sprintf("%s/login?fly_port=%s", targetUrl, port)
+	openURL = fmt.Sprintf("%s/login?fly_port=%s", targetURL, port)
 
 	fmt.Printf("  %s\n", openURL)
+
+	fmt.Println("\nor paste your token here:")
 
 	select {
 	case tokenStrMsg := <-tokenChannel:
 		tokenStr = tokenStrMsg
-	case errorMsg := <-errorChannel:
-		return nil, errorMsg
+	case err := <-errorChannel:
+		return nil, err
 	}
 
 	segments := strings.SplitN(tokenStr, " ", 2)
@@ -229,14 +236,23 @@ func (c *client) authCodeGrant(targetUrl string) (*oauth2.Token, error) {
 	return &oauth2.Token{TokenType: segments[0], AccessToken: segments[1]}, nil
 }
 
-func listenForTokenCallback(tokenChannel chan string, errorChannel chan error, portChannel chan string, targetUrl string) {
+func readTokenFromInputStream(tokenChannel chan string, errorChannel chan error) {
+	tokenBytes, _, err := bufio.NewReader(os.Stdin).ReadLine()
+	if err != nil {
+		errorChannel <- err
+		return
+	}
+	tokenChannel <- string(tokenBytes)
+}
+
+func listenForTokenCallback(tokenChannel chan string, errorChannel chan error, portChannel chan string, targetURL string) {
 	s := &http.Server{
 		Addr: "127.0.0.1:0",
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", targetUrl)
+			w.Header().Set("Access-Control-Allow-Origin", targetURL)
 			tokenChannel <- r.FormValue("token")
 			if r.Header.Get("Upgrade-Insecure-Requests") != "" {
-				http.Redirect(w, r, fmt.Sprintf("%s/fly_success?noop=true", targetUrl), http.StatusFound)
+				http.Redirect(w, r, fmt.Sprintf("%s/fly_success?noop=true", targetURL), http.StatusFound)
 			}
 		}),
 	}
