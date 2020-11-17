@@ -145,6 +145,8 @@ func (c *client) getAuthToken() (token *oauth2.Token, err error) {
 		c.team,
 		true,
 		"",
+		"",
+		"",
 		false,
 	)
 	if err == nil {
@@ -156,6 +158,8 @@ func (c *client) getAuthToken() (token *oauth2.Token, err error) {
 		c.concourseURL,
 		c.team,
 		true,
+		"",
+		"",
 		"",
 		false,
 	)
@@ -174,6 +178,8 @@ func (c *client) getAuthToken() (token *oauth2.Token, err error) {
 				Type:  token.TokenType,
 				Value: token.AccessToken,
 			},
+			"",
+			"",
 			"",
 		)
 	}()
@@ -199,7 +205,6 @@ func (c *client) passwordGrant(client concourse.Client) (*oauth2.Token, error) {
 }
 
 func (c *client) authCodeGrant(targetURL string) (*oauth2.Token, error) {
-
 	var tokenStr string
 
 	tokenChannel := make(chan string)
@@ -258,7 +263,6 @@ func listenForTokenCallback(tokenChannel chan string, errorChannel chan error, p
 	}
 
 	err := listenAndServeWithPort(s, portChannel)
-
 	if err != nil {
 		errorChannel <- err
 	}

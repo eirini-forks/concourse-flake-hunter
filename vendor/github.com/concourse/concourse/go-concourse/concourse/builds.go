@@ -39,7 +39,7 @@ func (team *team) CreateJobBuild(pipelineName string, jobName string) (atc.Build
 	params := rata.Params{
 		"job_name":      jobName,
 		"pipeline_name": pipelineName,
-		"team_name":     team.name,
+		"team_name":     team.Name(),
 	}
 
 	var build atc.Build
@@ -53,12 +53,31 @@ func (team *team) CreateJobBuild(pipelineName string, jobName string) (atc.Build
 	return build, err
 }
 
+func (team *team) RerunJobBuild(pipelineName string, jobName string, buildName string) (atc.Build, error) {
+	params := rata.Params{
+		"build_name":    buildName,
+		"job_name":      jobName,
+		"pipeline_name": pipelineName,
+		"team_name":     team.Name(),
+	}
+
+	var build atc.Build
+	err := team.connection.Send(internal.Request{
+		RequestName: atc.RerunJobBuild,
+		Params:      params,
+	}, &internal.Response{
+		Result: &build,
+	})
+
+	return build, err
+}
+
 func (team *team) JobBuild(pipelineName, jobName, buildName string) (atc.Build, bool, error) {
 	params := rata.Params{
 		"job_name":      jobName,
 		"build_name":    buildName,
 		"pipeline_name": pipelineName,
-		"team_name":     team.name,
+		"team_name":     team.Name(),
 	}
 
 	var build atc.Build
@@ -144,7 +163,7 @@ func (team *team) Builds(page Page) ([]atc.Build, Pagination, error) {
 	headers := http.Header{}
 
 	params := rata.Params{
-		"team_name": team.name,
+		"team_name": team.Name(),
 	}
 
 	err := team.connection.Send(internal.Request{

@@ -1,6 +1,8 @@
 package event
 
-import "github.com/concourse/concourse/atc"
+import (
+	"github.com/concourse/concourse/atc"
+)
 
 type Error struct {
 	Message string `json:"message"`
@@ -88,6 +90,15 @@ type Status struct {
 func (Status) EventType() atc.EventType  { return EventTypeStatus }
 func (Status) Version() atc.EventVersion { return "1.0" }
 
+type SelectedWorker struct {
+	Time       int64  `json:"time"`
+	Origin     Origin `json:"origin"`
+	WorkerName string `json:"selected_worker"`
+}
+
+func (SelectedWorker) EventType() atc.EventType  { return EventTypeSelectedWorker }
+func (SelectedWorker) Version() atc.EventVersion { return "1.0" }
+
 type Log struct {
 	Time    int64  `json:"time"`
 	Origin  Origin `json:"origin"`
@@ -164,3 +175,36 @@ type FinishPut struct {
 
 func (FinishPut) EventType() atc.EventType  { return EventTypeFinishPut }
 func (FinishPut) Version() atc.EventVersion { return "5.1" }
+
+type SetPipelineChanged struct {
+	Origin  Origin `json:"origin"`
+	Changed bool   `json:"changed"`
+}
+
+func (SetPipelineChanged) EventType() atc.EventType  { return EventTypeSetPipelineChanged }
+func (SetPipelineChanged) Version() atc.EventVersion { return "1.0" }
+
+type Initialize struct {
+	Origin Origin `json:"origin"`
+	Time   int64  `json:"time,omitempty"`
+}
+
+func (Initialize) EventType() atc.EventType  { return EventTypeInitialize }
+func (Initialize) Version() atc.EventVersion { return "1.0" }
+
+type Start struct {
+	Origin Origin `json:"origin"`
+	Time   int64  `json:"time,omitempty"`
+}
+
+func (Start) EventType() atc.EventType  { return EventTypeStart }
+func (Start) Version() atc.EventVersion { return "1.0" }
+
+type Finish struct {
+	Origin    Origin `json:"origin"`
+	Time      int64  `json:"time"`
+	Succeeded bool   `json:"succeeded"`
+}
+
+func (Finish) EventType() atc.EventType  { return EventTypeFinish }
+func (Finish) Version() atc.EventVersion { return "1.0" }
