@@ -76,6 +76,9 @@ func (c *client) BuildEvents(buildID string) ([]byte, error) {
 
 	buf := bytes.NewBuffer([]byte{})
 	var buildConfig event.TaskConfig
+
+	isInSlowTest := false
+
 	for {
 		ev, err := events.NextEvent()
 		if err != nil {
@@ -88,6 +91,18 @@ func (c *client) BuildEvents(buildID string) ([]byte, error) {
 
 		switch e := ev.(type) {
 		case event.Log:
+			if isInSlowTest {
+				if strings.Contains(e.Payload, "------------------------------") {
+					isInSlowTest = false
+				}
+				continue
+			}
+
+			if strings.Contains(e.Payload, "SLOW TEST") {
+				isInSlowTest = true
+				continue
+			}
+
 			fmt.Fprintf(buf, "%s", e.Payload)
 
 		case event.InitializeTask:
