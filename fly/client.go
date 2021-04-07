@@ -84,6 +84,11 @@ func (c *client) BuildEvents(buildID string) ([]byte, error) {
 		if err != nil {
 			if err == io.EOF {
 				return buf.Bytes(), nil
+			} else if strings.Contains(err.Error(), "unknown event type: image-") {
+				// NextEvent() currently returns an error on the new
+				// image-check and image-get event types. We can safely
+				// discard their content
+				continue
 			} else {
 				panic(fmt.Sprintf("failed to parse event - %s", err.Error()))
 			}
