@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"github.com/masters-of-cats/concourse-flake-hunter/commands"
-	"github.com/masters-of-cats/concourse-flake-hunter/fly"
+	"github.com/cloudfoundry/concourse-flake-hunter/commands"
+	"github.com/cloudfoundry/concourse-flake-hunter/fly"
 	"github.com/urfave/cli"
 )
 

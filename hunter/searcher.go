@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cloudfoundry/concourse-flake-hunter/fly"
 	"github.com/concourse/concourse/atc"
 	"github.com/concourse/concourse/go-concourse/concourse"
-	"github.com/masters-of-cats/concourse-flake-hunter/fly"
 )
 
 const (
