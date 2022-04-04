@@ -1,6 +1,8 @@
 package event
 
 import (
+	"encoding/json"
+
 	"github.com/concourse/concourse/atc"
 )
 
@@ -90,6 +92,14 @@ type Status struct {
 func (Status) EventType() atc.EventType  { return EventTypeStatus }
 func (Status) Version() atc.EventVersion { return "1.0" }
 
+type WaitingForWorker struct {
+	Time   int64  `json:"time"`
+	Origin Origin `json:"origin"`
+}
+
+func (WaitingForWorker) EventType() atc.EventType  { return EventTypeWaitingForWorker }
+func (WaitingForWorker) Version() atc.EventVersion { return "1.0" }
+
 type SelectedWorker struct {
 	Time       int64  `json:"time"`
 	Origin     Origin `json:"origin"`
@@ -98,6 +108,17 @@ type SelectedWorker struct {
 
 func (SelectedWorker) EventType() atc.EventType  { return EventTypeSelectedWorker }
 func (SelectedWorker) Version() atc.EventVersion { return "1.0" }
+
+type StreamingVolume struct {
+	Time         int64  `json:"time"`
+	Origin       Origin `json:"origin"`
+	Volume       string `json:"volume"`
+	SourceWorker string `json:"source_worker"`
+	DestWorker   string `json:"dest_worker"`
+}
+
+func (StreamingVolume) EventType() atc.EventType  { return EventTypeStreamingVolume }
+func (StreamingVolume) Version() atc.EventVersion { return "1.0" }
 
 type Log struct {
 	Time    int64  `json:"time"`
@@ -115,12 +136,25 @@ type Origin struct {
 
 type OriginID string
 
+func (id OriginID) String() string {
+	return string(id)
+}
+
 type OriginSource string
 
 const (
 	OriginSourceStdout OriginSource = "stdout"
 	OriginSourceStderr OriginSource = "stderr"
 )
+
+type InitializeCheck struct {
+	Origin Origin `json:"origin"`
+	Time   int64  `json:"time,omitempty"`
+	Name   string `json:"name"`
+}
+
+func (InitializeCheck) EventType() atc.EventType  { return EventTypeInitializeCheck }
+func (InitializeCheck) Version() atc.EventVersion { return "1.0" }
 
 type InitializeGet struct {
 	Origin Origin `json:"origin"`
@@ -208,3 +242,30 @@ type Finish struct {
 
 func (Finish) EventType() atc.EventType  { return EventTypeFinish }
 func (Finish) Version() atc.EventVersion { return "1.0" }
+
+type ImageCheck struct {
+	Time       int64            `json:"time"`
+	Origin     Origin           `json:"origin"`
+	PublicPlan *json.RawMessage `json:"plan"`
+}
+
+func (ImageCheck) EventType() atc.EventType  { return EventTypeImageCheck }
+func (ImageCheck) Version() atc.EventVersion { return "1.1" }
+
+type ImageGet struct {
+	Time       int64            `json:"time"`
+	Origin     Origin           `json:"origin"`
+	PublicPlan *json.RawMessage `json:"plan"`
+}
+
+func (ImageGet) EventType() atc.EventType  { return EventTypeImageGet }
+func (ImageGet) Version() atc.EventVersion { return "1.1" }
+
+type AcrossSubsteps struct {
+	Time     int64              `json:"time"`
+	Origin   Origin             `json:"origin"`
+	Substeps []*json.RawMessage `json:"substeps"`
+}
+
+func (AcrossSubsteps) EventType() atc.EventType  { return EventTypeAcrossSubsteps }
+func (AcrossSubsteps) Version() atc.EventVersion { return "1.0" }

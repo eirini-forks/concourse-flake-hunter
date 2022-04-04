@@ -14,8 +14,7 @@ const (
 	BuildResources      = "BuildResources"
 	AbortBuild          = "AbortBuild"
 	GetBuildPreparation = "GetBuildPreparation"
-
-	GetCheck = "GetCheck"
+	SetBuildComment     = "SetBuildComment"
 
 	GetJob         = "GetJob"
 	CreateJobBuild = "CreateJobBuild"
@@ -41,34 +40,38 @@ const (
 	CheckResource        = "CheckResource"
 	CheckResourceWebHook = "CheckResourceWebHook"
 	CheckResourceType    = "CheckResourceType"
+	CheckPrototype       = "CheckPrototype"
 
-	ListResourceVersions          = "ListResourceVersions"
-	GetResourceVersion            = "GetResourceVersion"
-	EnableResourceVersion         = "EnableResourceVersion"
-	DisableResourceVersion        = "DisableResourceVersion"
-	PinResourceVersion            = "PinResourceVersion"
-	UnpinResource                 = "UnpinResource"
-	SetPinCommentOnResource       = "SetPinCommentOnResource"
-	ListBuildsWithVersionAsInput  = "ListBuildsWithVersionAsInput"
-	ListBuildsWithVersionAsOutput = "ListBuildsWithVersionAsOutput"
-	GetResourceCausality          = "GetResourceCausality"
+	ListResourceVersions           = "ListResourceVersions"
+	GetResourceVersion             = "GetResourceVersion"
+	EnableResourceVersion          = "EnableResourceVersion"
+	DisableResourceVersion         = "DisableResourceVersion"
+	PinResourceVersion             = "PinResourceVersion"
+	UnpinResource                  = "UnpinResource"
+	SetPinCommentOnResource        = "SetPinCommentOnResource"
+	ListBuildsWithVersionAsInput   = "ListBuildsWithVersionAsInput"
+	ListBuildsWithVersionAsOutput  = "ListBuildsWithVersionAsOutput"
+	ClearResourceCache             = "ClearResourceCache"
+	GetDownstreamResourceCausality = "GetDownstreamResourceCausality"
+	GetUpstreamResourceCausality   = "GetUpstreamResourceCausality"
 
 	GetCC = "GetCC"
 
-	ListAllPipelines    = "ListAllPipelines"
-	ListPipelines       = "ListPipelines"
-	GetPipeline         = "GetPipeline"
-	DeletePipeline      = "DeletePipeline"
-	OrderPipelines      = "OrderPipelines"
-	PausePipeline       = "PausePipeline"
-	ArchivePipeline     = "ArchivePipeline"
-	UnpausePipeline     = "UnpausePipeline"
-	ExposePipeline      = "ExposePipeline"
-	HidePipeline        = "HidePipeline"
-	RenamePipeline      = "RenamePipeline"
-	ListPipelineBuilds  = "ListPipelineBuilds"
-	CreatePipelineBuild = "CreatePipelineBuild"
-	PipelineBadge       = "PipelineBadge"
+	ListAllPipelines          = "ListAllPipelines"
+	ListPipelines             = "ListPipelines"
+	GetPipeline               = "GetPipeline"
+	DeletePipeline            = "DeletePipeline"
+	OrderPipelines            = "OrderPipelines"
+	OrderPipelinesWithinGroup = "OrderPipelinesWithinGroup"
+	PausePipeline             = "PausePipeline"
+	ArchivePipeline           = "ArchivePipeline"
+	UnpausePipeline           = "UnpausePipeline"
+	ExposePipeline            = "ExposePipeline"
+	HidePipeline              = "HidePipeline"
+	RenamePipeline            = "RenamePipeline"
+	ListPipelineBuilds        = "ListPipelineBuilds"
+	CreatePipelineBuild       = "CreatePipelineBuild"
+	PipelineBadge             = "PipelineBadge"
 
 	RegisterWorker  = "RegisterWorker"
 	LandWorker      = "LandWorker"
@@ -133,8 +136,7 @@ var Routes = rata.Routes([]rata.Route{
 	{Path: "/api/v1/builds/:build_id/abort", Method: "PUT", Name: AbortBuild},
 	{Path: "/api/v1/builds/:build_id/preparation", Method: "GET", Name: GetBuildPreparation},
 	{Path: "/api/v1/builds/:build_id/artifacts", Method: "GET", Name: ListBuildArtifacts},
-
-	{Path: "/api/v1/checks/:check_id", Method: "GET", Name: GetCheck},
+	{Path: "/api/v1/builds/:build_id/comment", Method: "PUT", Name: SetBuildComment},
 
 	{Path: "/api/v1/jobs", Method: "GET", Name: ListAllJobs},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/jobs", Method: "GET", Name: ListJobs},
@@ -157,6 +159,7 @@ var Routes = rata.Routes([]rata.Route{
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name", Method: "GET", Name: GetPipeline},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name", Method: "DELETE", Name: DeletePipeline},
 	{Path: "/api/v1/teams/:team_name/pipelines/ordering", Method: "PUT", Name: OrderPipelines},
+	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/ordering", Method: "PUT", Name: OrderPipelinesWithinGroup},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/pause", Method: "PUT", Name: PausePipeline},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/archive", Method: "PUT", Name: ArchivePipeline},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/unpause", Method: "PUT", Name: UnpausePipeline},
@@ -175,6 +178,8 @@ var Routes = rata.Routes([]rata.Route{
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/check", Method: "POST", Name: CheckResource},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/check/webhook", Method: "POST", Name: CheckResourceWebHook},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resource-types/:resource_type_name/check", Method: "POST", Name: CheckResourceType},
+	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/prototypes/:prototype_name/check", Method: "POST", Name: CheckPrototype},
+	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/cache", Method: "DELETE", Name: ClearResourceCache},
 
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/versions", Method: "GET", Name: ListResourceVersions},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/versions/:resource_config_version_id", Method: "GET", Name: GetResourceVersion},
@@ -185,7 +190,9 @@ var Routes = rata.Routes([]rata.Route{
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/pin_comment", Method: "PUT", Name: SetPinCommentOnResource},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/versions/:resource_config_version_id/input_to", Method: "GET", Name: ListBuildsWithVersionAsInput},
 	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/versions/:resource_config_version_id/output_of", Method: "GET", Name: ListBuildsWithVersionAsOutput},
-	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/versions/:resource_version_id/causality", Method: "GET", Name: GetResourceCausality},
+	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/versions/:resource_config_version_id/downstream", Method: "GET", Name: GetDownstreamResourceCausality},
+	{Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/versions/:resource_config_version_id/upstream", Method: "GET", Name: GetUpstreamResourceCausality},
+	// {Path: "/api/v1/teams/:team_name/pipelines/:pipeline_name/resources/:resource_name/causality", Method: "GET", Name: GetResourceCausality},
 
 	{Path: "/api/v1/teams/:team_name/cc.xml", Method: "GET", Name: GetCC},
 

@@ -35,10 +35,10 @@ func (team *team) CreateBuild(plan atc.Plan) (atc.Build, error) {
 	return build, err
 }
 
-func (team *team) CreateJobBuild(pipelineName string, jobName string) (atc.Build, error) {
+func (team *team) CreateJobBuild(pipelineRef atc.PipelineRef, jobName string) (atc.Build, error) {
 	params := rata.Params{
 		"job_name":      jobName,
-		"pipeline_name": pipelineName,
+		"pipeline_name": pipelineRef.Name,
 		"team_name":     team.Name(),
 	}
 
@@ -46,6 +46,7 @@ func (team *team) CreateJobBuild(pipelineName string, jobName string) (atc.Build
 	err := team.connection.Send(internal.Request{
 		RequestName: atc.CreateJobBuild,
 		Params:      params,
+		Query:       pipelineRef.QueryParams(),
 	}, &internal.Response{
 		Result: &build,
 	})
@@ -53,11 +54,11 @@ func (team *team) CreateJobBuild(pipelineName string, jobName string) (atc.Build
 	return build, err
 }
 
-func (team *team) RerunJobBuild(pipelineName string, jobName string, buildName string) (atc.Build, error) {
+func (team *team) RerunJobBuild(pipelineRef atc.PipelineRef, jobName string, buildName string) (atc.Build, error) {
 	params := rata.Params{
 		"build_name":    buildName,
 		"job_name":      jobName,
-		"pipeline_name": pipelineName,
+		"pipeline_name": pipelineRef.Name,
 		"team_name":     team.Name(),
 	}
 
@@ -65,6 +66,7 @@ func (team *team) RerunJobBuild(pipelineName string, jobName string, buildName s
 	err := team.connection.Send(internal.Request{
 		RequestName: atc.RerunJobBuild,
 		Params:      params,
+		Query:       pipelineRef.QueryParams(),
 	}, &internal.Response{
 		Result: &build,
 	})
@@ -72,11 +74,46 @@ func (team *team) RerunJobBuild(pipelineName string, jobName string, buildName s
 	return build, err
 }
 
-func (team *team) JobBuild(pipelineName, jobName, buildName string) (atc.Build, bool, error) {
+func (team *team) SetJobBuildComment(pipelineRef atc.PipelineRef, jobName string, buildName string, comment string) (bool, error) {
+	params := rata.Params{
+		"build_name":    buildName,
+		"job_name":      jobName,
+		"pipeline_name": pipelineRef.Name,
+		"team_name":     team.Name(),
+	}
+
+	pinComment := atc.SetBuildCommentBody{
+		Comment: comment,
+	}
+
+	buffer := &bytes.Buffer{}
+	err := json.NewEncoder(buffer).Encode(pinComment)
+	if err != nil {
+		return false, fmt.Errorf("Unable to marshal comment: %s", err)
+	}
+
+	err = team.connection.Send(internal.Request{
+		RequestName: atc.SetBuildComment,
+		Params:      params,
+		Query:       pipelineRef.QueryParams(),
+		Body:        buffer,
+	}, nil)
+
+	switch err.(type) {
+	case nil:
+		return true, nil
+	case internal.ResourceNotFoundError:
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
+func (team *team) JobBuild(pipelineRef atc.PipelineRef, jobName, buildName string) (atc.Build, bool, error) {
 	params := rata.Params{
 		"job_name":      jobName,
 		"build_name":    buildName,
-		"pipeline_name": pipelineName,
+		"pipeline_name": pipelineRef.Name,
 		"team_name":     team.Name(),
 	}
 
@@ -84,6 +121,7 @@ func (team *team) JobBuild(pipelineName, jobName, buildName string) (atc.Build, 
 	err := team.connection.Send(internal.Request{
 		RequestName: atc.GetJobBuild,
 		Params:      params,
+		Query:       pipelineRef.QueryParams(),
 	}, &internal.Response{
 		Result: &build,
 	})

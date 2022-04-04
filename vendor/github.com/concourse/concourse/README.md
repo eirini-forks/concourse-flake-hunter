@@ -32,19 +32,19 @@ to keep track of - here's an overview:
 
 | Feature                  | RFC              | Status |
 | ------------------------ | ---------------- | ------ |
-| `set_pipeline` step      | ✔ [#31][rfc-31]  | ✔ v5.8.0 (experimental), TODO: [#5814][issue-5814] |
+| `set_pipeline` step      | ✔ [#31][rfc-31]  | ✔ v5.8.0 (experimental) |
 | Var sources for creds    | ✔ [#39][rfc-39]  | ✔ v5.8.0 (experimental), TODO: [#5813][issue-5813] |
 | Archiving pipelines      | ✔ [#33][rfc-33]  | ✔ v6.5.0 |
-| Instanced pipelines      | ✔ [#34][rfc-34]  | 🚧 PR [#5896][pr-5896] for backend, issue [#5921][issue-5921] for UI |
+| Instanced pipelines      | ✔ [#34][rfc-34]  | ✔ v7.0.0 (experimental) |
 | Static `across` step     | 🚧 [#29][rfc-29] | ✔ v6.5.0 (experimental) |
-| Dynamic `across` step    | 🚧 [#29][rfc-29] | 🙏 RFC needs feedback! |
+| Dynamic `across` step    | 🚧 [#29][rfc-29] | ✔ v7.4.0 (experimental, not released yet) |
 | Projects                 | 🚧 [#32][rfc-32] | 🙏 RFC needs feedback! |
 | `load_var` step          | ✔ [#27][rfc-27]  | ✔ v6.0.0 (experimental) |
-| `get_var` step           | ✔ [#27][rfc-27]  | 🙏 [#5815][issue-5815] Looking for volunteers! |
+| `get_var` step           | ✔ [#27][rfc-27]  | 🚧 [#5815][issue-5815] in progress! |
 | [Prototypes][prototypes] | ✔ [#37][rfc-37]  | ⚠ Pending first use of protocol (any of the below) |
 | `run` step               | 🚧 [#37][rfc-37]  | ⚠ Pending its own RFC, but feel free to experiment |
-| Resource prototypes      | ✔ [#38][rfc-38]  | 🙏 [#5870][issue-5870] Looking for volunteers! |
-| Var source prototypes    |                  | ⚠ Needs RFC |
+| Resource prototypes      | ✔ [#38][rfc-38]  | 🙏 [#5870][issue-5870] looking for volunteers! |
+| Var source prototypes    |                  | 🚧 [#6275][issue-6275] planned, may lead to RFC |
 | Notifier prototypes      | 🚧 [#28][rfc-28] | ⚠ RFC not ready |
 
 The Concourse team at VMware will be working on these features, however in the
@@ -67,6 +67,7 @@ support such common functionality the "Concoursey way!" 🙏
 [issue-5815]: https://github.com/concourse/concourse/issues/5815
 [issue-5870]: https://github.com/concourse/concourse/issues/5870
 [issue-5921]: https://github.com/concourse/concourse/issues/5921
+[issue-6275]: https://github.com/concourse/concourse/issues/6275
 [pr-5896]: https://github.com/concourse/concourse/pull/5896
 [rfc-27]: https://github.com/concourse/rfcs/blob/master/027-var-steps/proposal.md
 [rfc-28]: https://github.com/concourse/rfcs/pull/28
@@ -158,7 +159,7 @@ Concourse instance to the next.
 * The [Concourse Tutorial](https://concoursetutorial.com) by Stark & Wayne is
   great for a guided introduction to all the core concepts.
 * See Concourse in action with our [production pipelines](https://ci.concourse-ci.org/)
-* Hang around in the [forums](https://discuss.concourse-ci.org) or in
+* Hang around in the [GitHub discussions](https://github.com/concourse/concourse/discussions) or in
   [Discord](https://discord.gg/MeRxXKW).
 * See what we're working on on the [project board](https://github.com/orgs/concourse/projects). 
 

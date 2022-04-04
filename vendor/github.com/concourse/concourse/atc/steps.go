@@ -191,12 +191,12 @@ type StepVisitor interface {
 	VisitTask(*TaskStep) error
 	VisitGet(*GetStep) error
 	VisitPut(*PutStep) error
+	VisitRun(*RunStep) error
 	VisitSetPipeline(*SetPipelineStep) error
 	VisitLoadVar(*LoadVarStep) error
 	VisitTry(*TryStep) error
 	VisitDo(*DoStep) error
 	VisitInParallel(*InParallelStep) error
-	VisitAggregate(*AggregateStep) error
 	VisitAcross(*AcrossStep) error
 	VisitTimeout(*TimeoutStep) error
 	VisitRetry(*RetryStep) error
@@ -251,8 +251,8 @@ var StepPrecedence = []StepDetector{
 		New: func() StepConfig { return &RetryStep{} },
 	},
 	{
-		Key: "timeout",
-		New: func() StepConfig { return &TimeoutStep{} },
+		Key: "run",
+		New: func() StepConfig { return &RunStep{} },
 	},
 	{
 		Key: "task",
@@ -265,6 +265,10 @@ var StepPrecedence = []StepDetector{
 	{
 		Key: "get",
 		New: func() StepConfig { return &GetStep{} },
+	},
+	{
+		Key: "timeout",
+		New: func() StepConfig { return &TimeoutStep{} },
 	},
 	{
 		Key: "set_pipeline",
@@ -286,10 +290,6 @@ var StepPrecedence = []StepDetector{
 		Key: "in_parallel",
 		New: func() StepConfig { return &InParallelStep{} },
 	},
-	{
-		Key: "aggregate",
-		New: func() StepConfig { return &AggregateStep{} },
-	},
 }
 
 type GetStep struct {
@@ -300,6 +300,7 @@ type GetStep struct {
 	Passed   []string       `json:"passed,omitempty"`
 	Trigger  bool           `json:"trigger,omitempty"`
 	Tags     Tags           `json:"tags,omitempty"`
+	Timeout  string         `json:"timeout,omitempty"`
 }
 
 func (step *GetStep) ResourceName() string {
@@ -321,6 +322,7 @@ type PutStep struct {
 	Inputs    *InputsConfig `json:"inputs,omitempty"`
 	Tags      Tags          `json:"tags,omitempty"`
 	GetParams Params        `json:"get_params,omitempty"`
+	Timeout   string        `json:"timeout,omitempty"`
 }
 
 func (step *PutStep) ResourceName() string {
@@ -339,6 +341,7 @@ type TaskStep struct {
 	Name              string            `json:"task"`
 	Privileged        bool              `json:"privileged,omitempty"`
 	ConfigPath        string            `json:"file,omitempty"`
+	Limits            *ContainerLimits  `json:"container_limits,omitempty"`
 	Config            *TaskConfig       `json:"config,omitempty"`
 	Params            TaskEnv           `json:"params,omitempty"`
 	Vars              Params            `json:"vars,omitempty"`
@@ -346,18 +349,42 @@ type TaskStep struct {
 	InputMapping      map[string]string `json:"input_mapping,omitempty"`
 	OutputMapping     map[string]string `json:"output_mapping,omitempty"`
 	ImageArtifactName string            `json:"image,omitempty"`
+	Timeout           string            `json:"timeout,omitempty"`
 }
 
 func (step *TaskStep) Visit(v StepVisitor) error {
 	return v.VisitTask(step)
 }
 
+type RunStep struct {
+	Message    string           `json:"run"`
+	Type       string           `json:"type"`
+	Params     Params           `json:"params,omitempty"`
+	Privileged bool             `json:"privileged,omitempty"`
+	Tags       Tags             `json:"tags,omitempty"`
+	Limits     *ContainerLimits `json:"container_limits,omitempty"`
+	Timeout    string           `json:"timeout,omitempty"`
+
+	// XXX(prototypes): inputs, outputs, input_mapping, output_mapping?
+	// see https://github.com/concourse/rfcs/pull/103
+
+	// XXX(prototypes): set_vars?
+
+	// XXX(prototypes): image? That way, you can build a prototype and run it
+	// in the same pipeline. This would be in place of type.
+}
+
+func (step *RunStep) Visit(v StepVisitor) error {
+	return v.VisitRun(step)
+}
+
 type SetPipelineStep struct {
-	Name     string   `json:"set_pipeline"`
-	File     string   `json:"file,omitempty"`
-	Team     string   `json:"team,omitempty"`
-	Vars     Params   `json:"vars,omitempty"`
-	VarFiles []string `json:"var_files,omitempty"`
+	Name         string       `json:"set_pipeline"`
+	File         string       `json:"file,omitempty"`
+	Team         string       `json:"team,omitempty"`
+	Vars         Params       `json:"vars,omitempty"`
+	VarFiles     []string     `json:"var_files,omitempty"`
+	InstanceVars InstanceVars `json:"instance_vars,omitempty"`
 }
 
 func (step *SetPipelineStep) Visit(v StepVisitor) error {
@@ -389,14 +416,6 @@ type DoStep struct {
 
 func (step *DoStep) Visit(v StepVisitor) error {
 	return v.VisitDo(step)
-}
-
-type AggregateStep struct {
-	Steps []Step `json:"aggregate"`
-}
-
-func (step *AggregateStep) Visit(v StepVisitor) error {
-	return v.VisitAggregate(step)
 }
 
 type InParallelStep struct {
@@ -444,7 +463,7 @@ func (c *InParallelConfig) UnmarshalJSON(payload []byte) error {
 
 type AcrossVarConfig struct {
 	Var         string             `json:"var"`
-	Values      []interface{}      `json:"values,omitempty"`
+	Values      interface{}        `json:"values,omitempty"`
 	MaxInFlight *MaxInFlightConfig `json:"max_in_flight,omitempty"`
 }
 
@@ -643,6 +662,16 @@ func (c *MaxInFlightConfig) MarshalJSON() ([]byte, error) {
 	return json.Marshal(c.Limit)
 }
 
+func (c *MaxInFlightConfig) EffectiveLimit(numSteps int) int {
+	if c == nil {
+		return 1
+	}
+	if c.All {
+		return numSteps
+	}
+	return c.Limit
+}
+
 // A VersionConfig represents the choice to include every version of a
 // resource, the latest version of a resource, or a pinned (specific) one.
 type VersionConfig struct {
@@ -650,6 +679,9 @@ type VersionConfig struct {
 	Latest bool
 	Pinned Version
 }
+
+const VersionLatest = "latest"
+const VersionEvery = "every"
 
 func (c *VersionConfig) UnmarshalJSON(version []byte) error {
 	var data interface{}
@@ -661,8 +693,8 @@ func (c *VersionConfig) UnmarshalJSON(version []byte) error {
 
 	switch actual := data.(type) {
 	case string:
-		c.Every = actual == "every"
-		c.Latest = actual == "latest"
+		c.Every = actual == VersionEvery
+		c.Latest = actual == VersionLatest
 	case map[string]interface{}:
 		version := Version{}
 
@@ -683,9 +715,6 @@ func (c *VersionConfig) UnmarshalJSON(version []byte) error {
 	return nil
 }
 
-const VersionLatest = "latest"
-const VersionEvery = "every"
-
 func (c *VersionConfig) MarshalJSON() ([]byte, error) {
 	if c.Latest {
 		return json.Marshal(VersionLatest)
@@ -701,6 +730,9 @@ func (c *VersionConfig) MarshalJSON() ([]byte, error) {
 
 	return json.Marshal("")
 }
+
+const InputsAll = "all"
+const InputsDetect = "detect"
 
 // A InputsConfig represents the choice to include every artifact within the
 // job as an input to the put step or specific ones.
@@ -720,8 +752,8 @@ func (c *InputsConfig) UnmarshalJSON(inputs []byte) error {
 
 	switch actual := data.(type) {
 	case string:
-		c.All = actual == "all"
-		c.Detect = actual == "detect"
+		c.All = actual == InputsAll
+		c.Detect = actual == InputsDetect
 	case []interface{}:
 		inputs := []string{}
 
@@ -741,9 +773,6 @@ func (c *InputsConfig) UnmarshalJSON(inputs []byte) error {
 
 	return nil
 }
-
-const InputsAll = "all"
-const InputsDetect = "detect"
 
 func (c InputsConfig) MarshalJSON() ([]byte, error) {
 	if c.All {

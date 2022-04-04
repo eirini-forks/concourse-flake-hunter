@@ -17,6 +17,9 @@ type StepRecursor struct {
 	// OnPut will be invoked for any *PutStep present in the StepConfig.
 	OnPut func(*PutStep) error
 
+	// OnRun will be invoked for any *RunStep present in the StepConfig.
+	OnRun func(*RunStep) error
+
 	// OnSetPipeline will be invoked for any *SetPipelineStep present in the StepConfig.
 	OnSetPipeline func(*SetPipelineStep) error
 
@@ -46,6 +49,15 @@ func (recursor StepRecursor) VisitGet(step *GetStep) error {
 func (recursor StepRecursor) VisitPut(step *PutStep) error {
 	if recursor.OnPut != nil {
 		return recursor.OnPut(step)
+	}
+
+	return nil
+}
+
+// VisitRun calls the OnRun hook if configured.
+func (recursor StepRecursor) VisitRun(step *RunStep) error {
+	if recursor.OnRun != nil {
+		return recursor.OnRun(step)
 	}
 
 	return nil
@@ -89,18 +101,6 @@ func (recursor StepRecursor) VisitDo(step *DoStep) error {
 // VisitInParallel recurses through to the wrapped steps.
 func (recursor StepRecursor) VisitInParallel(step *InParallelStep) error {
 	for _, sub := range step.Config.Steps {
-		err := sub.Config.Visit(recursor)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// VisitAggregate recurses through to the wrapped steps.
-func (recursor StepRecursor) VisitAggregate(step *AggregateStep) error {
-	for _, sub := range step.Steps {
 		err := sub.Config.Visit(recursor)
 		if err != nil {
 			return err

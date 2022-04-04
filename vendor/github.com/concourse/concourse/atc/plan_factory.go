@@ -25,8 +25,6 @@ func (factory PlanFactory) NewPlan(step PlanConfig) Plan {
 
 	var plan Plan
 	switch t := step.(type) {
-	case AggregatePlan:
-		plan.Aggregate = &t
 	case InParallelPlan:
 		plan.InParallel = &t
 	case AcrossPlan:
@@ -39,6 +37,8 @@ func (factory PlanFactory) NewPlan(step PlanConfig) Plan {
 		plan.Put = &t
 	case TaskPlan:
 		plan.Task = &t
+	case RunPlan:
+		plan.Run = &t
 	case SetPipelinePlan:
 		plan.SetPipeline = &t
 	case LoadVarPlan:

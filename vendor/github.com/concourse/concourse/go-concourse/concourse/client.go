@@ -9,8 +9,9 @@ import (
 	"github.com/concourse/concourse/go-concourse/concourse/internal"
 )
 
-//go:generate counterfeiter . Client
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
 
+//counterfeiter:generate . Client
 type Client interface {
 	URL() string
 	HTTPClient() *http.Client
@@ -34,7 +35,6 @@ type Client interface {
 	Team(teamName string) Team
 	UserInfo() (atc.UserInfo, error)
 	ListActiveUsersSince(since time.Time) ([]atc.User, error)
-	Check(checkID string) (atc.Check, bool, error)
 }
 
 type client struct {

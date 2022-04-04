@@ -38,20 +38,16 @@ type TaskConfig struct {
 	Caches []TaskCacheConfig `json:"caches,omitempty"`
 }
 
-type ContainerLimits struct {
-	CPU    *uint64 `json:"cpu,omitempty"`
-	Memory *uint64 `json:"memory,omitempty"`
-}
-
 type ImageResource struct {
-	Type   string `json:"type"`
-	Source Source `json:"source"`
-
-	Params  Params  `json:"params,omitempty"`
+	Name    string  `json:"name"`
+	Type    string  `json:"type"`
+	Source  Source  `json:"source"`
 	Version Version `json:"version,omitempty"`
+	Params  Params  `json:"params,omitempty"`
+	Tags    Tags    `json:"tags,omitempty"`
 }
 
-func (ir *ImageResource) ApplySourceDefaults(resourceTypes VersionedResourceTypes) {
+func (ir *ImageResource) ApplySourceDefaults(resourceTypes ResourceTypes) {
 	if ir == nil {
 		return
 	}

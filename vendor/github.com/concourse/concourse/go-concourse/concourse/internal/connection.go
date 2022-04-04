@@ -17,7 +17,9 @@ import (
 	"github.com/vito/go-sse/sse"
 )
 
-//go:generate counterfeiter . Connection
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+
+//counterfeiter:generate . Connection
 
 // Deprecated. Use HTTPAgent instead
 type Connection interface {
@@ -215,6 +217,8 @@ func (connection *connection) populateResponse(response *http.Response, returnRe
 			Body:       string(body),
 		}
 	}
+
+	showPolicyCheckWarningIfHas(response)
 
 	if passedResponse == nil {
 		return nil

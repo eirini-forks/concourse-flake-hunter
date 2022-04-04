@@ -68,7 +68,7 @@ func (s *Searcher) getBuildsFromPage(flakesChan chan Build, page concourse.Page,
 }
 
 func (s *Searcher) fetchBuildsFromPage(buildsChan chan atc.Build, page concourse.Page, spec SearchSpec) {
-	var pages = concourse.Pagination{Next: &page}
+	pages := concourse.Pagination{Next: &page}
 	var builds []atc.Build
 	var err error
 
@@ -81,7 +81,7 @@ func (s *Searcher) fetchBuildsFromPage(buildsChan chan atc.Build, page concourse
 		}
 
 		for _, build := range builds {
-			if build.Status != string(atc.StatusFailed) {
+			if build.Status != atc.StatusFailed {
 				continue
 			}
 

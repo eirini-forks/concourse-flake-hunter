@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 
 	"github.com/concourse/concourse/atc"
@@ -11,9 +12,9 @@ import (
 	"github.com/tedsuo/rata"
 )
 
-func (team *team) Pipeline(pipelineName string) (atc.Pipeline, bool, error) {
+func (team *team) Pipeline(pipelineRef atc.PipelineRef) (atc.Pipeline, bool, error) {
 	params := rata.Params{
-		"pipeline_name": pipelineName,
+		"pipeline_name": pipelineRef.Name,
 		"team_name":     team.Name(),
 	}
 
@@ -21,6 +22,7 @@ func (team *team) Pipeline(pipelineName string) (atc.Pipeline, bool, error) {
 	err := team.connection.Send(internal.Request{
 		RequestName: atc.GetPipeline,
 		Params:      params,
+		Query:       pipelineRef.QueryParams(),
 	}, &internal.Response{
 		Result: &pipeline,
 	})
@@ -35,25 +37,91 @@ func (team *team) Pipeline(pipelineName string) (atc.Pipeline, bool, error) {
 	}
 }
 
-func (team *team) OrderingPipelines(pipelines []string) error {
+func (team *team) OrderingPipelines(pipelineNames []string) error {
 	params := rata.Params{
 		"team_name": team.Name(),
 	}
 
 	buffer := &bytes.Buffer{}
-	err := json.NewEncoder(buffer).Encode(pipelines)
+	err := json.NewEncoder(buffer).Encode(pipelineNames)
 	if err != nil {
 		return fmt.Errorf("Unable to marshal pipeline names: %s", err)
 	}
 
-	return team.connection.Send(internal.Request{
+	resp, err := team.httpAgent.Send(internal.Request{
 		RequestName: atc.OrderPipelines,
 		Params:      params,
 		Body:        buffer,
 		Header: http.Header{
 			"Content-Type": {"application/json"},
 		},
-	}, &internal.Response{})
+	})
+
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusForbidden:
+		return fmt.Errorf("you do not have a role on team '%s'", team.Name())
+	case http.StatusBadRequest:
+		body, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf(string(body))
+	default:
+		body, _ := ioutil.ReadAll(resp.Body)
+		return internal.UnexpectedResponseError{
+			StatusCode: resp.StatusCode,
+			Status:     resp.Status,
+			Body:       string(body),
+		}
+	}
+}
+
+func (team *team) OrderingPipelinesWithinGroup(groupName string, instanceVars []atc.InstanceVars) error {
+	params := rata.Params{
+		"team_name":     team.Name(),
+		"pipeline_name": groupName,
+	}
+
+	buffer := &bytes.Buffer{}
+	err := json.NewEncoder(buffer).Encode(instanceVars)
+	if err != nil {
+		return fmt.Errorf("Unable to marshal pipeline instance vars: %s", err)
+	}
+
+	resp, err := team.httpAgent.Send(internal.Request{
+		RequestName: atc.OrderPipelinesWithinGroup,
+		Params:      params,
+		Body:        buffer,
+		Header: http.Header{
+			"Content-Type": {"application/json"},
+		},
+	})
+
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusForbidden:
+		return fmt.Errorf("you do not have a role on team '%s'", team.Name())
+	case http.StatusBadRequest:
+		body, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf(string(body))
+	default:
+		body, _ := ioutil.ReadAll(resp.Body)
+		return internal.UnexpectedResponseError{
+			StatusCode: resp.StatusCode,
+			Status:     resp.Status,
+			Body:       string(body),
+		}
+	}
 }
 
 func (team *team) ListPipelines() ([]atc.Pipeline, error) {
@@ -83,7 +151,7 @@ func (client *client) ListPipelines() ([]atc.Pipeline, error) {
 	return pipelines, err
 }
 
-func (team *team) CreatePipelineBuild(pipelineName string, plan atc.Plan) (atc.Build, error) {
+func (team *team) CreatePipelineBuild(pipelineRef atc.PipelineRef, plan atc.Plan) (atc.Build, error) {
 	var build atc.Build
 
 	buffer := &bytes.Buffer{}
@@ -97,8 +165,9 @@ func (team *team) CreatePipelineBuild(pipelineName string, plan atc.Plan) (atc.B
 		Body:        buffer,
 		Params: rata.Params{
 			"team_name":     team.Name(),
-			"pipeline_name": pipelineName,
+			"pipeline_name": pipelineRef.Name,
 		},
+		Query: pipelineRef.QueryParams(),
 		Header: http.Header{
 			"Content-Type": {"application/json"},
 		},
@@ -108,38 +177,39 @@ func (team *team) CreatePipelineBuild(pipelineName string, plan atc.Plan) (atc.B
 
 	return build, err
 }
-func (team *team) DeletePipeline(pipelineName string) (bool, error) {
-	return team.managePipeline(pipelineName, atc.DeletePipeline)
+func (team *team) DeletePipeline(pipelineRef atc.PipelineRef) (bool, error) {
+	return team.managePipeline(pipelineRef, atc.DeletePipeline)
 }
 
-func (team *team) PausePipeline(pipelineName string) (bool, error) {
-	return team.managePipeline(pipelineName, atc.PausePipeline)
+func (team *team) PausePipeline(pipelineRef atc.PipelineRef) (bool, error) {
+	return team.managePipeline(pipelineRef, atc.PausePipeline)
 }
 
-func (team *team) ArchivePipeline(pipelineName string) (bool, error) {
-	return team.managePipeline(pipelineName, atc.ArchivePipeline)
+func (team *team) ArchivePipeline(pipelineRef atc.PipelineRef) (bool, error) {
+	return team.managePipeline(pipelineRef, atc.ArchivePipeline)
 }
 
-func (team *team) UnpausePipeline(pipelineName string) (bool, error) {
-	return team.managePipeline(pipelineName, atc.UnpausePipeline)
+func (team *team) UnpausePipeline(pipelineRef atc.PipelineRef) (bool, error) {
+	return team.managePipeline(pipelineRef, atc.UnpausePipeline)
 }
 
-func (team *team) ExposePipeline(pipelineName string) (bool, error) {
-	return team.managePipeline(pipelineName, atc.ExposePipeline)
+func (team *team) ExposePipeline(pipelineRef atc.PipelineRef) (bool, error) {
+	return team.managePipeline(pipelineRef, atc.ExposePipeline)
 }
 
-func (team *team) HidePipeline(pipelineName string) (bool, error) {
-	return team.managePipeline(pipelineName, atc.HidePipeline)
+func (team *team) HidePipeline(pipelineRef atc.PipelineRef) (bool, error) {
+	return team.managePipeline(pipelineRef, atc.HidePipeline)
 }
 
-func (team *team) managePipeline(pipelineName string, endpoint string) (bool, error) {
+func (team *team) managePipeline(pipelineRef atc.PipelineRef, endpoint string) (bool, error) {
 	params := rata.Params{
-		"pipeline_name": pipelineName,
+		"pipeline_name": pipelineRef.Name,
 		"team_name":     team.Name(),
 	}
 	err := team.connection.Send(internal.Request{
 		RequestName: endpoint,
 		Params:      params,
+		Query:       pipelineRef.QueryParams(),
 	}, nil)
 
 	switch err.(type) {
@@ -152,13 +222,13 @@ func (team *team) managePipeline(pipelineName string, endpoint string) (bool, er
 	}
 }
 
-func (team *team) RenamePipeline(pipelineName, name string) (bool, []ConfigWarning, error) {
+func (team *team) RenamePipeline(oldName string, newName string) (bool, []ConfigWarning, error) {
 	params := rata.Params{
-		"pipeline_name": pipelineName,
+		"pipeline_name": oldName,
 		"team_name":     team.Name(),
 	}
 
-	jsonBytes, err := json.Marshal(atc.RenameRequest{NewName: name})
+	jsonBytes, err := json.Marshal(atc.RenameRequest{NewName: newName})
 	if err != nil {
 		return false, []ConfigWarning{}, err
 	}
@@ -183,9 +253,9 @@ func (team *team) RenamePipeline(pipelineName, name string) (bool, []ConfigWarni
 	}
 }
 
-func (team *team) PipelineBuilds(pipelineName string, page Page) ([]atc.Build, Pagination, bool, error) {
+func (team *team) PipelineBuilds(pipelineRef atc.PipelineRef, page Page) ([]atc.Build, Pagination, bool, error) {
 	params := rata.Params{
-		"pipeline_name": pipelineName,
+		"pipeline_name": pipelineRef.Name,
 		"team_name":     team.Name(),
 	}
 
@@ -195,7 +265,7 @@ func (team *team) PipelineBuilds(pipelineName string, page Page) ([]atc.Build, P
 	err := team.connection.Send(internal.Request{
 		RequestName: atc.ListPipelineBuilds,
 		Params:      params,
-		Query:       page.QueryParams(),
+		Query:       merge(page.QueryParams(), pipelineRef.QueryParams()),
 	}, &internal.Response{
 		Result:  &builds,
 		Headers: &headers,

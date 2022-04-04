@@ -9,8 +9,14 @@ const (
 	// build status change (e.g. 'started', 'succeeded')
 	EventTypeStatus atc.EventType = "status"
 
+	// a step (get/put/task) is waiting for a worker
+	EventTypeWaitingForWorker atc.EventType = "waiting-for-worker"
+
 	// a step (get/put/task) selected worker
 	EventTypeSelectedWorker atc.EventType = "selected-worker"
+
+	// a step (get/put/task) is streaming a volume from another worker
+	EventTypeStreamingVolume atc.EventType = "streaming-volume"
 
 	// task execution started
 	EventTypeStartTask atc.EventType = "start-task"
@@ -20,6 +26,9 @@ const (
 
 	// task execution finished
 	EventTypeFinishTask atc.EventType = "finish-task"
+
+	// initialize checking something
+	EventTypeInitializeCheck atc.EventType = "initialize-check"
 
 	// initialize getting something
 	EventTypeInitializeGet atc.EventType = "initialize-get"
@@ -52,4 +61,13 @@ const (
 
 	// error occurred
 	EventTypeError atc.EventType = "error"
+
+	// image check sub-plan
+	EventTypeImageCheck atc.EventType = "image-check"
+
+	// image get sub-plan
+	EventTypeImageGet atc.EventType = "image-get"
+
+	// across step substeps (sent dynamically as of Concourse 7.4)
+	EventTypeAcrossSubsteps atc.EventType = "across-substeps"
 )

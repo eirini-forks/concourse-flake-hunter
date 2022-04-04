@@ -4,25 +4,27 @@
   "main": "index.js",
   "repository": "https://github.com/concourse/concourse",
   "license": "Apache-2.0",
-  "dependencies": {},
+  "dependencies": {
+    "request": "^2.86.0"
+  },
   "devDependencies": {
-    "@babel/core": "^7.8.4",
+    "@babel/core": "^7.17.5",
     "@babel/plugin-syntax-dynamic-import": "^7.8.3",
-    "@babel/preset-env": "^7.8.4",
-    "@mdi/svg": "^5.0.45",
-    "babel-loader": "^8.0.6",
+    "@babel/preset-env": "^7.16.11",
+    "@mdi/svg": "^6.5.95",
+    "babel-loader": "^8.2.3",
     "child-process-promise": "^2.2.1",
-    "clean-css-cli": "^4.3.0",
+    "clean-css-cli": "^5.5.2",
     "elm": "^0.19.1",
-    "elm-analyse": "stil4m/elm-analyse#1ced133fa266fca45027e007e573badedb62a225",
-    "elm-format": "0.8.2",
-    "elm-test": "^0.19.1",
-    "less": "^3.10.3",
+    "elm-analyse": "stil4m/elm-analyse#701b8b4013a4f057b9382d368e42adc6fe08e14e",
+    "elm-format": "0.8.5",
+    "elm-test": "^0.19.1-revision7",
+    "less": "^4.1.2",
     "less-plugin-autoprefix": "^2.0.0",
-    "puppeteer": "^1.20.0",
-    "uglify-js": "^3.6.3",
-    "webpack": "^4.41.6",
-    "webpack-cli": "^3.3.11"
+    "puppeteer": "^13.4.1",
+    "uglify-js": "^3.15.2",
+    "webpack": "^5.69.1",
+    "webpack-cli": "^4.9.2"
   },
   "resolutions": {
     "less/request": "^2.86.0"
@@ -35,9 +37,9 @@
     "build-js": "webpack --mode production",
     "test": "cd web/elm && elm-test",
     "build-less": "lessc web/assets/css/main.less web/public/main.out.css && cleancss -o web/public/main.css web/public/main.out.css && rm web/public/main.out.css",
-    "build-elm": "cd web/elm && elm make --optimize --output ../public/elm.js src/Main.elm && uglifyjs ../public/elm.js --compress \"pure_funcs=[F2,F3,F4,F5,F6,F7,F8,F9,A2,A3,A4,A5,A6,A7,A8,A9],pure_getters,keep_fargs=false,unsafe_comps,unsafe\" | uglifyjs --mangle --output=../public/elm.min.js",
+    "build-elm": "cd web/elm && elm make --optimize --output ../public/elm.js src/Main.elm && uglifyjs ../public/elm.js --compress \"pure_funcs=[F2,F3,F4,F5,F6,F7,F8,F9,A2,A3,A4,A5,A6,A7,A8,A9],pure_getters,keep_fargs=false,unsafe_comps,unsafe\" | uglifyjs --mangle --output ../public/elm.min.js",
     "build-elm-debug": "cd web/elm && elm make --debug --output ../public/elm.js src/Main.elm && uglifyjs < ../public/elm.js > ../public/elm.min.js",
     "update-mdi-svg": "./hack/update-mdi-svg \"node_modules/@mdi/svg/svg\" | tr -d '\n' > web/public/mdi-svg.min.js",
-    "benchmark": "echo skipping benchmarks until https://github.com/elm-explorations/benchmark/issues/21 is fixed"
+    "benchmark": "cd web/elm && elm make --optimize --output /tmp/benchmark.html benchmarks/Benchmarks.elm && node benchmarks/benchmark.js /tmp/benchmark.html"
   }
 }

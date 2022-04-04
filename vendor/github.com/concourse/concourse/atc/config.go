@@ -2,8 +2,11 @@ package atc
 
 import (
 	"crypto/tls"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	"sigs.k8s.io/yaml"
@@ -14,13 +17,12 @@ import (
 const ConfigVersionHeader = "X-Concourse-Config-Version"
 const DefaultTeamName = "main"
 
-type Tags []string
-
 type Config struct {
 	Groups        GroupConfigs     `json:"groups,omitempty"`
 	VarSources    VarSourceConfigs `json:"var_sources,omitempty"`
 	Resources     ResourceConfigs  `json:"resources,omitempty"`
 	ResourceTypes ResourceTypes    `json:"resource_types,omitempty"`
+	Prototypes    Prototypes       `json:"prototypes,omitempty"`
 	Jobs          JobConfigs       `json:"jobs,omitempty"`
 	Display       *DisplayConfig   `json:"display,omitempty"`
 }
@@ -32,6 +34,7 @@ func UnmarshalConfig(payload []byte, config interface{}) error {
 		VarSources    interface{} `json:"var_sources,omitempty"`
 		Resources     interface{} `json:"resources,omitempty"`
 		ResourceTypes interface{} `json:"resource_types,omitempty"`
+		Prototypes    interface{} `json:"prototypes,omitempty"`
 		Jobs          interface{} `json:"jobs,omitempty"`
 		Display       interface{} `json:"display,omitempty"`
 	}
@@ -173,35 +176,99 @@ func (c VarSourceConfigs) OrderByDependency() (VarSourceConfigs, error) {
 }
 
 type ResourceConfig struct {
-	Name         string  `json:"name"`
-	OldName      string  `json:"old_name,omitempty"`
-	Public       bool    `json:"public,omitempty"`
-	WebhookToken string  `json:"webhook_token,omitempty"`
-	Type         string  `json:"type"`
-	Source       Source  `json:"source"`
-	CheckEvery   string  `json:"check_every,omitempty"`
-	CheckTimeout string  `json:"check_timeout,omitempty"`
-	Tags         Tags    `json:"tags,omitempty"`
-	Version      Version `json:"version,omitempty"`
-	Icon         string  `json:"icon,omitempty"`
+	Name                 string      `json:"name"`
+	OldName              string      `json:"old_name,omitempty"`
+	Public               bool        `json:"public,omitempty"`
+	WebhookToken         string      `json:"webhook_token,omitempty"`
+	Type                 string      `json:"type"`
+	Source               Source      `json:"source"`
+	CheckEvery           *CheckEvery `json:"check_every,omitempty"`
+	CheckTimeout         string      `json:"check_timeout,omitempty"`
+	Tags                 Tags        `json:"tags,omitempty"`
+	Version              Version     `json:"version,omitempty"`
+	Icon                 string      `json:"icon,omitempty"`
+	ExposeBuildCreatedBy bool        `json:"expose_build_created_by,omitempty"`
 }
 
 type ResourceType struct {
-	Name                 string `json:"name"`
-	Type                 string `json:"type"`
-	Source               Source `json:"source"`
-	Defaults             Source `json:"defaults,omitempty"`
-	Privileged           bool   `json:"privileged,omitempty"`
-	CheckEvery           string `json:"check_every,omitempty"`
-	Tags                 Tags   `json:"tags,omitempty"`
-	Params               Params `json:"params,omitempty"`
-	CheckSetupError      string `json:"check_setup_error,omitempty"`
-	CheckError           string `json:"check_error,omitempty"`
-	UniqueVersionHistory bool   `json:"unique_version_history,omitempty"`
+	Name       string      `json:"name"`
+	Type       string      `json:"type"`
+	Source     Source      `json:"source"`
+	Defaults   Source      `json:"defaults,omitempty"`
+	Privileged bool        `json:"privileged,omitempty"`
+	CheckEvery *CheckEvery `json:"check_every,omitempty"`
+	Tags       Tags        `json:"tags,omitempty"`
+	Params     Params      `json:"params,omitempty"`
+}
+
+type Prototype struct {
+	Name       string      `json:"name"`
+	Type       string      `json:"type"`
+	Source     Source      `json:"source"`
+	Defaults   Source      `json:"defaults,omitempty"`
+	Privileged bool        `json:"privileged,omitempty"`
+	CheckEvery *CheckEvery `json:"check_every,omitempty"`
+	Tags       Tags        `json:"tags,omitempty"`
+	Params     Params      `json:"params,omitempty"`
 }
 
 type DisplayConfig struct {
 	BackgroundImage string `json:"background_image,omitempty"`
+}
+
+type CheckEvery struct {
+	Never    bool
+	Interval time.Duration
+}
+
+func (c *CheckEvery) UnmarshalJSON(checkEvery []byte) error {
+	var data interface{}
+
+	err := json.Unmarshal(checkEvery, &data)
+	if err != nil {
+		return err
+	}
+
+	actual, ok := data.(string)
+	if !ok {
+		return errors.New("non-string value provided")
+	}
+
+	if actual != "" {
+		if actual == "never" {
+			c.Never = true
+			return nil
+		}
+		c.Interval, err = time.ParseDuration(actual)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *CheckEvery) MarshalJSON() ([]byte, error) {
+	if c.Never {
+		return json.Marshal("never")
+	}
+
+	if c.Interval != 0 {
+		return json.Marshal(c.Interval.String())
+	}
+
+	return json.Marshal("")
+}
+
+type Prototypes []Prototype
+
+func (types Prototypes) Lookup(name string) (Prototype, bool) {
+	for _, t := range types {
+		if t.Name == name {
+			return t, true
+		}
+	}
+
+	return Prototype{}, false
 }
 
 type ResourceTypes []ResourceType
@@ -225,6 +292,111 @@ func (types ResourceTypes) Without(name string) ResourceTypes {
 	}
 
 	return newTypes
+}
+
+type ImagePlanner interface {
+	ImageForType(planID PlanID, resourceType string, stepTags Tags, skipInterval bool) TypeImage
+}
+
+func (types ResourceTypes) ImageForType(planID PlanID, resourceType string, stepTags Tags, skipInterval bool) TypeImage {
+	// Check if resource type is a custom type
+	parent, found := types.Lookup(resourceType)
+	if !found {
+		// If it is not a custom type, return back the image as a base type
+		return TypeImage{
+			BaseType: resourceType,
+		}
+	}
+
+	imageResource := ImageResource{
+		Name:   parent.Name,
+		Type:   parent.Type,
+		Source: parent.Source,
+		Params: parent.Params,
+		Tags:   parent.Tags,
+	}
+
+	getPlan, checkPlan := FetchImagePlan(planID, imageResource, types.Without(parent.Name), stepTags, skipInterval, parent.CheckEvery)
+	checkPlan.Check.ResourceType = resourceType
+
+	return TypeImage{
+		// Set the base type as the base type of its parent. The value of the base
+		// type will always be the base type at the bottom of the dependency chain.
+		//
+		// For example, if there is a resource that depends on a custom type that
+		// depends on a git base resource type, the BaseType value of the resource's
+		// TypeImage will be git.
+		BaseType: getPlan.Get.TypeImage.BaseType,
+
+		Privileged: parent.Privileged,
+
+		// GetPlan for fetching the custom type's image and CheckPlan
+		// for checking the version of the custom type.
+		GetPlan:   &getPlan,
+		CheckPlan: checkPlan,
+	}
+}
+
+func FetchImagePlan(planID PlanID, image ImageResource, resourceTypes ResourceTypes, stepTags Tags, skipInterval bool, checkEvery *CheckEvery) (Plan, *Plan) {
+	// If resource type is a custom type, recurse in order to resolve nested resource types
+	getPlanID := planID + "/image-get"
+
+	tags := image.Tags
+	if len(image.Tags) == 0 {
+		tags = stepTags
+	}
+
+	// Construct get plan for image
+	imageGetPlan := Plan{
+		ID: getPlanID,
+		Get: &GetPlan{
+			Name:   image.Name,
+			Type:   image.Type,
+			Source: image.Source,
+			Params: image.Params,
+
+			TypeImage: resourceTypes.ImageForType(getPlanID, image.Type, tags, skipInterval),
+
+			Tags: tags,
+		},
+	}
+
+	var maybeCheckPlan *Plan
+	if image.Version == nil {
+		checkPlanID := planID + "/image-check"
+		// don't know the version, need to do a Check before the Get
+		interval := CheckEvery{
+			Interval: DefaultCheckInterval,
+		}
+
+		if checkEvery != nil {
+			interval = *checkEvery
+		}
+
+		checkPlan := Plan{
+			ID: checkPlanID,
+			Check: &CheckPlan{
+				Name:     image.Name,
+				Type:     image.Type,
+				Source:   image.Source,
+				Interval: interval,
+
+				TypeImage: resourceTypes.ImageForType(checkPlanID, image.Type, tags, skipInterval),
+
+				Tags: tags,
+
+				SkipInterval: skipInterval,
+			},
+		}
+		maybeCheckPlan = &checkPlan
+
+		imageGetPlan.Get.VersionFrom = &checkPlan.ID
+	} else {
+		// version is already provided, only need to do Get step
+		imageGetPlan.Get.Version = &image.Version
+	}
+
+	return imageGetPlan, maybeCheckPlan
 }
 
 type ResourceConfigs []ResourceConfig

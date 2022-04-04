@@ -34,6 +34,7 @@ func RegisterEvent(e atc.Event) {
 }
 
 func init() {
+	RegisterEvent(InitializeCheck{})
 	RegisterEvent(InitializeTask{})
 	RegisterEvent(StartTask{})
 	RegisterEvent(FinishTask{})
@@ -45,9 +46,14 @@ func init() {
 	RegisterEvent(FinishPut{})
 	RegisterEvent(SetPipelineChanged{})
 	RegisterEvent(Status{})
+	RegisterEvent(WaitingForWorker{})
 	RegisterEvent(SelectedWorker{})
+	RegisterEvent(StreamingVolume{})
 	RegisterEvent(Log{})
 	RegisterEvent(Error{})
+	RegisterEvent(ImageCheck{})
+	RegisterEvent(ImageGet{})
+	RegisterEvent(AcrossSubsteps{})
 
 	// deprecated:
 	RegisterEvent(InitializeV10{})
@@ -94,6 +100,7 @@ type Envelope struct {
 	Data    *json.RawMessage `json:"data"`
 	Event   atc.EventType    `json:"event"`
 	Version atc.EventVersion `json:"version"`
+	EventID string           `json:"event_id"`
 }
 
 func (m Message) MarshalJSON() ([]byte, error) {
