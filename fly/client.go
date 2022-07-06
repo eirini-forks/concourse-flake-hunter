@@ -94,20 +94,21 @@ func (c *client) BuildEvents(buildID string) ([]byte, error) {
 
 		switch e := ev.(type) {
 		case event.Log:
-			if isInSlowTest {
-				if strings.Contains(e.Payload, "------------------------------") {
-					isInSlowTest = false
+			for _, payloadLine := range strings.Split(e.Payload, "\n") {
+				if isInSlowTest {
+					if strings.Contains(payloadLine, "------------------------------") {
+						isInSlowTest = false
+					}
+					continue
 				}
-				continue
+
+				if strings.Contains(payloadLine, "SLOW TEST") {
+					isInSlowTest = true
+					continue
+				}
+
+				fmt.Fprintf(buf, "%s", payloadLine)
 			}
-
-			if strings.Contains(e.Payload, "SLOW TEST") {
-				isInSlowTest = true
-				continue
-			}
-
-			fmt.Fprintf(buf, "%s", e.Payload)
-
 		case event.InitializeTask:
 			buildConfig = e.TaskConfig
 
