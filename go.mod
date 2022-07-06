@@ -1,4 +1,4 @@
-module github.com/masters-of-cats/concourse-flake-hunter
+module github.com/eirini-forks/concourse-flake-hunter
 
 go 1.15
 
